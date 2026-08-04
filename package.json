@@ -13,6 +13,9 @@
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "preview:email": "tsx scripts/preview-email.ts",
+    "preflight": "tsx --env-file=.env.local scripts/preflight.ts",
+    "security:check": "tsx --env-file=.env.local scripts/security-check.ts",
+    "tm:probe": "tsx --env-file=.env.local scripts/tm-probe.ts",
     "seed:genres": "tsx --env-file=.env.local scripts/seed-genres.ts",
     "seed:cities": "tsx --env-file=.env.local scripts/seed-cities.ts"
   },
