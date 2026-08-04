@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Notice, SectionHeading } from "@/components/ui";
 import { PixelDot } from "@/components/pixel";
@@ -21,12 +21,20 @@ export function SubscriptionEditor({
   savedCityIds,
   savedGenreIds,
   inferredGenreIds,
+  placesControl,
 }: {
   cities: ToggleItem[];
   genres: ToggleItem[];
   savedCityIds: number[];
   savedGenreIds: number[];
   inferredGenreIds: number[];
+  /**
+   * The follow-any-town control, rendered under the grid.
+   *
+   * Passed in rather than imported: it writes immediately and this component's whole
+   * job is to hold edits until Save, so it stays out of the dirty tracking above.
+   */
+  placesControl?: ReactNode;
 }) {
   const router = useRouter();
 
@@ -97,7 +105,9 @@ export function SubscriptionEditor({
 
   return (
     <div className="space-y-8">
-      <section>
+      {/* scroll-mt clears the sticky SectionNav, which would otherwise cover the
+          heading a jump link just moved to. */}
+      <section id="cities" className="scroll-mt-16">
         <SectionHeading hint="One Ticketmaster query is made per city you follow, shared across everyone who follows it.">
           Cities
         </SectionHeading>
@@ -115,9 +125,11 @@ export function SubscriptionEditor({
             would mean filtering a different way.
           </p>
         </Card>
+
+        {placesControl ? <div className="mt-4">{placesControl}</div> : null}
       </section>
 
-      <section>
+      <section id="genres" className="scroll-mt-16">
         <SectionHeading hint="Ordered roughly by how much is listed in each, not alphabetically. Filtering happens on each event's primary Ticketmaster genre.">
           Genres
         </SectionHeading>

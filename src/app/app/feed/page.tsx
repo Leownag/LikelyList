@@ -7,8 +7,11 @@ import { EmptyState, Notice, SectionHeading } from "@/components/ui";
 import { EventCard } from "@/components/event-card";
 import type { Profile } from "@/lib/db";
 import type { PinInput } from "@/lib/pins/types";
+import { getI18n } from "@/lib/i18n/server";
 
-export const metadata = { title: "My feed — likelylist" };
+export async function generateMetadata() {
+  return { title: (await getI18n()).t("title.feed") };
+}
 
 /**
  * This week's shows for this reader — the Friday email, on screen, now.
@@ -28,6 +31,7 @@ export default async function FeedPage() {
   const user = await requireUser();
   const supabase = await createClient();
   const env = readEnv();
+  const { t } = await getI18n();
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -65,37 +69,35 @@ export default async function FeedPage() {
       <section>
         <SectionHeading
           hint={
-            `${window.startDate} … ${window.endDate} — the same scoring the Friday email ` +
-            `uses, so this is what it would say if it went out now.` +
+            t("feed.hint", {
+              window: `${window.startDate} … ${window.endDate}`,
+            }) +
             (digest && digest.events.length > 1
               ? digest.ordering === "relevance"
-                ? " Best matches first."
+                ? ` ${t("feed.hint.relevance")}`
                 : // Genres alone all weigh the same, so there is nothing to rank by and
                   // the list is chronological. Said plainly rather than implied away.
-                  " In date order — follow some artists and the best matches rise to the top."
+                  ` ${t("feed.hint.dateOrder")}`
               : "")
           }
         >
-          My feed
+          {t("feed.heading")}
         </SectionHeading>
 
         {!digest ? (
-          <Notice tone="warn">
-            The feed needs the service role key, which is not configured on this
-            deployment.
-          </Notice>
+          <Notice tone="warn">{t("feed.unconfigured")}</Notice>
         ) : digest.events.length === 0 ? (
-          <EmptyState title="nothing this week">
+          <EmptyState title={t("feed.empty.title")}>
             {digest.cities.length === 0
-              ? "You haven't followed a city yet — that is the one thing the feed cannot guess."
-              : "No listed shows matched your genres or artists. Listings are refreshed by the Friday run, so a brand-new account can look empty until then."}
+              ? t("feed.empty.noCity")
+              : t("feed.empty.noMatch")}
             <div className="mt-4 text-sm">
               <a className="text-accent underline" href="/app/subscriptions">
-                Change what you follow
+                {t("feed.empty.change")}
               </a>
               {" · "}
               <a className="text-accent underline" href="/explore">
-                Search any city instead
+                {t("feed.empty.search")}
               </a>
             </div>
           </EmptyState>
@@ -104,14 +106,12 @@ export default async function FeedPage() {
             {digest.fallbackReason === "no_preferences" ? (
               <div className="mb-4">
                 <Notice tone="warn">
-                  You haven&apos;t told us what you listen to yet, so this is
-                  everything listed in{" "}
-                  {digest.cities.join(", ") || "your cities"} — not a filtered
-                  selection.{" "}
+                  {t("feed.unfiltered", {
+                    cities: digest.cities.join(", ") || t("feed.yourCities"),
+                  })}{" "}
                   <a className="underline" href="/app/subscriptions">
-                    Pick your genres
+                    {t("feed.unfiltered.link")}
                   </a>
-                  .
                 </Notice>
               </div>
             ) : null}
@@ -148,6 +148,8 @@ function toPinInput(
     name: string;
     url: string | null;
     localDate: string;
+    localTime: string | null;
+    timezone: string | null;
     venueName: string | null;
     cityLabel: string;
     imageUrl: string | null;
@@ -161,11 +163,8 @@ function toPinInput(
     name: event.name,
     url: event.url,
     localDate: event.localDate || today,
-    // Not carried through the digest pipeline — the email renders a formatted label and
-    // never needed the raw values. Pinning from here therefore stores a date without a
-    // time, which "add to calendar" turns into an all-day entry rather than guessing.
-    localTime: null,
-    timezone: null,
+    localTime: event.localTime,
+    timezone: event.timezone,
     venueName: event.venueName,
     cityLabel: event.cityLabel,
     imageUrl: event.imageUrl,

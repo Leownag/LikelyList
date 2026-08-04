@@ -3,13 +3,18 @@ import { Button, Card, Label, Notice, SectionHeading, Select } from "@/component
 import { TIMEZONES, nextWeekdayAt } from "@/lib/time";
 import { deleteAccount, updateSchedule } from "./actions";
 import { DeleteAccount } from "./delete-account";
+import { getI18n, getT } from "@/lib/i18n/server";
+import type { Locale } from "@/lib/i18n/locales";
 
-export const metadata = { title: "Settings — likelylist" };
+export async function generateMetadata() {
+  return { title: (await getT())("title.settings") };
+}
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
 export default async function SettingsPage() {
   const { profile } = await requireProfile();
+  const { locale, t } = await getI18n();
 
   const nextSend = nextWeekdayAt(
     new Date(),
@@ -21,14 +26,14 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-10">
       <section>
-        <SectionHeading hint="The weekly job runs at a fixed UTC time; delivery is then released when your own local clock reaches this hour, which is what keeps it in the morning through daylight saving.">
-          Delivery
+        <SectionHeading hint={t("settings.delivery.hint")}>
+          {t("settings.delivery.heading")}
         </SectionHeading>
         <Card className="p-5">
           <form action={updateSchedule} className="space-y-5">
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
-                <Label htmlFor="timezone">Timezone</Label>
+                <Label htmlFor="timezone">{t("settings.timezone")}</Label>
                 <Select
                   id="timezone"
                   name="timezone"
@@ -43,7 +48,7 @@ export default async function SettingsPage() {
               </div>
 
               <div>
-                <Label htmlFor="digest_send_hour">Send around</Label>
+                <Label htmlFor="digest_send_hour">{t("settings.sendAround")}</Label>
                 <Select
                   id="digest_send_hour"
                   name="digest_send_hour"
@@ -51,7 +56,7 @@ export default async function SettingsPage() {
                 >
                   {HOURS.map((hour) => (
                     <option key={hour} value={hour}>
-                      {formatHour(hour)}
+                      {formatHour(hour, locale)}
                     </option>
                   ))}
                 </Select>
@@ -66,35 +71,32 @@ export default async function SettingsPage() {
                 className="mt-0.5 accent-accent"
               />
               <span>
-                Send me the weekly digest
+                {t("settings.enabled")}
                 <span className="mt-1 block text-xs text-muted">
-                  Unchecking this is the same as unsubscribing from the email.
-                  Nothing you&apos;ve followed is lost.
+                  {t("settings.enabled.hint")}
                 </span>
               </span>
             </label>
 
             <div className="flex flex-wrap items-center gap-4">
-              <Button type="submit">Save</Button>
+              <Button type="submit">{t("common.save")}</Button>
               <p className="text-xs text-faint">
-                Next: {formatNext(nextSend, profile.timezone)}
+                {t("settings.next", {
+                  when: formatNext(nextSend, profile.timezone, locale),
+                })}
               </p>
             </div>
           </form>
 
           <div className="mt-5">
-            <Notice>
-              Cloudflare spreads scheduled work across the hour it is triggered
-              in, so the exact minute drifts. &ldquo;Friday morning&rdquo; is
-              reliable; a precise time is not.
-            </Notice>
+            <Notice>{t("settings.drift")}</Notice>
           </div>
         </Card>
       </section>
 
       <section>
-        <SectionHeading hint="Your address, as used for sign-in and delivery.">
-          Account
+        <SectionHeading hint={t("settings.account.hint")}>
+          {t("settings.account.heading")}
         </SectionHeading>
         <Card className="p-5">
           <p className="font-mono text-sm">{profile.email}</p>
@@ -102,8 +104,8 @@ export default async function SettingsPage() {
       </section>
 
       <section>
-        <SectionHeading hint="Removes your profile, subscriptions, genres, artists and feeds. This cannot be undone.">
-          Delete account
+        <SectionHeading hint={t("settings.delete.hint")}>
+          {t("settings.delete.heading")}
         </SectionHeading>
         <DeleteAccount action={deleteAccount} />
       </section>
@@ -111,16 +113,16 @@ export default async function SettingsPage() {
   );
 }
 
-function formatHour(hour: number): string {
-  return new Intl.DateTimeFormat("en-US", {
+function formatHour(hour: number, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: "UTC",
     hour: "numeric",
     hour12: true,
   }).format(new Date(Date.UTC(2000, 0, 1, hour)));
 }
 
-function formatNext(at: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("en-US", {
+function formatNext(at: Date, timezone: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: timezone,
     weekday: "long",
     month: "short",

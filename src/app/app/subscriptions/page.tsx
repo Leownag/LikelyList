@@ -2,14 +2,16 @@ import { createClient, requireUser } from "@/lib/supabase/server";
 import { Notice, SectionHeading } from "@/components/ui";
 import type { City, Genre, GenrePref, Subscription } from "@/lib/db";
 import { SubscriptionEditor } from "./subscription-editor";
+import { SectionNav } from "./section-nav";
+import { ScreenshotSection } from "./screenshot-section";
+import { FollowedPlaces, type FollowedPlace } from "./followed-places";
 import type { ToggleItem } from "./toggle-grid";
 import { ArtistPrefList } from "./artist-prefs";
 import { ArtistSearch } from "./artist-search";
-import { SpotifyCard, type SpotifyState } from "./spotify-card";
-import { readEnv } from "@/lib/env";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { SpotifyCard } from "./spotify-card";
+import { loadSpotifyState } from "@/lib/spotify/state";
 
-export const metadata = { title: "Cities & genres — likelylist" };
+export const metadata = { title: "What I follow" };
 
 export default async function SubscriptionsPage() {
   const user = await requireUser();
@@ -22,7 +24,10 @@ export default async function SubscriptionsPage() {
       // scripts/seed-genres.ts — Ticketmaster exposes no popularity signal, and
       // alphabetical put Alternative and Blues ahead of Rock and Pop.
       supabase.from("genres").select("id, name").order("sort_order"),
-      supabase.from("subscriptions").select("city_id").eq("user_id", user.id),
+      supabase
+        .from("subscriptions")
+        .select("id, city_id, place_name, state_code")
+        .eq("user_id", user.id),
       supabase
         .from("genre_prefs")
         .select("genre_id, source, weight")
@@ -43,10 +48,24 @@ export default async function SubscriptionsPage() {
   >[];
   const genres = (genresResult.data ?? []) as Pick<Genre, "id" | "name">[];
 
-  const savedCityIds = (
-    (subsResult.data ?? []) as Pick<Subscription, "city_id">[]
-  ).map((row) => row.city_id)
+  const subscriptions = (subsResult.data ?? []) as Pick<
+    Subscription,
+    "id" | "city_id" | "place_name" | "state_code"
+  >[];
+
+  const savedCityIds = subscriptions
+    .map((row) => row.city_id)
     .filter((id): id is number => id !== null);
+
+  // A null city_id means it came from the town search rather than the curated grid, so
+  // the grid cannot show it and needs its own list to remove it from.
+  const followedPlaces: FollowedPlace[] = subscriptions
+    .filter((row) => row.city_id === null)
+    .map((row) => ({
+      id: row.id,
+      name: row.place_name ?? "Unnamed place",
+      stateCode: row.state_code,
+    }));
 
   const prefs = (prefsResult.data ?? []) as Pick<
     GenrePref,
@@ -74,6 +93,8 @@ export default async function SubscriptionsPage() {
 
   return (
     <div className="space-y-10">
+      <SectionNav />
+
       {genres.length === 0 ? (
         <Notice tone="warn">
           No genres are loaded yet. Run{" "}
@@ -90,9 +111,10 @@ export default async function SubscriptionsPage() {
         savedCityIds={savedCityIds}
         savedGenreIds={savedGenreIds}
         inferredGenreIds={inferredGenreIds}
+        placesControl={<FollowedPlaces places={followedPlaces} />}
       />
 
-      <section>
+      <section id="artists" className="scroll-mt-16">
         <SectionHeading hint="Search for anyone you don't want to miss, or let a screenshot fill this in. Shows by these artists get pushed to the top of your digest — and reach it even in a genre you don't follow.">
           Artists
         </SectionHeading>
@@ -115,40 +137,10 @@ export default async function SubscriptionsPage() {
           }
         />
       </section>
+
+      <section id="screenshots" className="scroll-mt-16">
+        <ScreenshotSection />
+      </section>
     </div>
   );
-}
-
-/**
- * The reader's Spotify connection, or null when the server has no Spotify credentials.
- *
- * Uses the admin client because `spotify_links` is deny-all under RLS — it holds a
- * refresh token, so it is deliberately unreachable from any browser session. Scoped to
- * this one user by the eq() below.
- *
- * Returning null rather than an "unconnected" state hides the card entirely on a
- * deployment with no Spotify app configured, which is better than offering a button
- * that can only fail.
- */
-async function loadSpotifyState(userId: string): Promise<SpotifyState | null> {
-  const env = readEnv();
-  if (!env.spotifyClientId || !env.spotifyClientSecret) return null;
-
-  const supabase = createAdminClient(env);
-  const { data } = await supabase
-    .from("spotify_links")
-    .select("last_imported_at, last_artist_count, invalid_since")
-    .eq("user_id", userId)
-    .maybeSingle<{
-      last_imported_at: string | null;
-      last_artist_count: number | null;
-      invalid_since: string | null;
-    }>();
-
-  return {
-    connected: Boolean(data),
-    lastImportedAt: data?.last_imported_at ?? null,
-    lastArtistCount: data?.last_artist_count ?? null,
-    needsReconnect: Boolean(data?.invalid_since),
-  };
 }

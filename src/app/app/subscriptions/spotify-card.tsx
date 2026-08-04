@@ -1,13 +1,9 @@
 import { Card } from "@/components/ui";
+import { SpotifyConnectButton } from "@/components/spotify-connect";
 import { disconnectSpotify } from "./actions";
 import { IMPORT_INTERVAL_DAYS } from "@/lib/spotify/import";
 
-export type SpotifyState = {
-  connected: boolean;
-  lastImportedAt: string | null;
-  lastArtistCount: number | null;
-  needsReconnect: boolean;
-};
+import type { SpotifyState } from "@/lib/spotify/state";
 
 /**
  * Connect Spotify, or say what it last did.
@@ -54,12 +50,7 @@ export function SpotifyCard({ state }: { state: SpotifyState }) {
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {state.needsReconnect ? (
-              <a
-                href="/api/spotify/connect"
-                className="border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink"
-              >
-                Reconnect Spotify
-              </a>
+<SpotifyConnectButton reconnect />
             ) : null}
             {/* A form so this is a POST: a disconnect behind a GET would be
                 triggerable by any link or prefetch. */}
@@ -93,18 +84,13 @@ export function SpotifyCard({ state }: { state: SpotifyState }) {
             </li>
           </ul>
           <div className="mt-4">
-            <a
-              href="/api/spotify/connect"
-              className="inline-flex items-center gap-2 border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink"
-            >
-              Connect Spotify
-            </a>
+<SpotifyConnectButton />
           </div>
-          {/* Plain text, not a ServiceLink: their guidelines require the mark to
-              link to Spotify, and this link goes to our own Feeds page. */}
+          {/* Plain text, not a ServiceLink: their guidelines require the mark to link
+              to Spotify, and this one goes to a section of this page. */}
           <p className="mt-3 text-xs text-faint">
             Prefer not to connect anything? The{" "}
-            <a className="text-accent underline" href="/app/feeds">
+            <a className="text-accent underline" href="/app/subscriptions#screenshots">
               screenshot reader
             </a>{" "}
             does the same job from a picture of your library.

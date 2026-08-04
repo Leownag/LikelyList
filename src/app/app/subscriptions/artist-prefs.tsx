@@ -36,8 +36,8 @@ export function ArtistPrefList({ artists }: { artists: ArtistPrefRow[] }) {
   if (visible.length === 0) {
     return (
       <EmptyState title="not following anyone yet">
-        Search for an artist above, or paste a music-app screenshot on the Feeds
-        page and everyone on it will show up here.
+        Search for an artist above, or paste a music-app screenshot into the
+        Screenshots section below and everyone on it will show up here.
       </EmptyState>
     );
   }

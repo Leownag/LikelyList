@@ -45,14 +45,17 @@ export async function saveSelections(input: {
     .eq("user_id", user.id);
 
   const existingCities = new Map(
-    ((existingCityRows ?? []) as { id: number; city_id: number }[]).map((row) => [
-      row.city_id,
-      row.id,
-    ]),
+    ((existingCityRows ?? []) as { id: number; city_id: number | null }[]).map(
+      (row) => [row.city_id, row.id],
+    ),
   );
 
+  // Only rows this grid could have created are the grid's to remove. Since 0014 a
+  // subscription is a point and `city_id` is nullable, so a followed Census place keys
+  // this map on null — and null is never in `wantedCities`, which would have made
+  // pressing Save on the city picker delete every subscription the picker cannot show.
   const cityIdsToDelete = [...existingCities.entries()]
-    .filter(([cityId]) => !wantedCities.has(cityId))
+    .filter(([cityId]) => cityId !== null && !wantedCities.has(cityId))
     .map(([, rowId]) => rowId);
 
   const citiesToInsert = [...wantedCities].filter(
@@ -159,6 +162,114 @@ export async function saveSelections(input: {
   return { cities: wantedCities.size, genres: wantedGenres.size };
 }
 
+/**
+ * How many towns outside the curated list one reader may follow.
+ *
+ * Not a preference — a cost. The planner makes one Ticketmaster call per distinct
+ * grid cell each week against a 5000/day budget the Friday send shares, so an
+ * unbounded follow list is a way for one account to spend everyone's quota. The
+ * curated grid is bounded by being a list of 43; this path is open to 32,329 places
+ * and needs its own ceiling.
+ */
+const MAX_FOLLOWED_PLACES = 10;
+
+/**
+ * Follow any US place, by its Census GEOID.
+ *
+ * The point of migration 0014: a subscription is coordinates, so it does not have to
+ * be one of the 43 curated metros. This is the write path that was missing — /explore
+ * could already search Amherst, MA, and nothing could subscribe to it.
+ *
+ * Only the id crosses the network. The coordinates are read from `places` here rather
+ * than taken from the caller, so a crafted call cannot subscribe to an arbitrary point
+ * and buy itself a weekly Ticketmaster query for it.
+ *
+ * Immediate rather than batched into Save: this adds one row for one named place, and
+ * the city grid's commit-together model exists for working through a long list of
+ * toggles, which this is not.
+ */
+export async function followPlace(
+  geoid: string,
+): Promise<{ name: string; stateCode: string | null }> {
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  if (!/^\d{2,10}$/.test(geoid)) throw new Error("That is not a place id.");
+
+  // `places` is deny-all under RLS — it is a shared reference table, not anybody's
+  // rows — so the lookup needs the admin client. Scoped to one id.
+  const env = readEnv();
+  if (!env.supabaseServiceRoleKey) {
+    throw new Error("Following a town is not configured on this server yet.");
+  }
+
+  const { data: place } = await createAdminClient(env)
+    .from("places")
+    .select("name, state_code, latitude, longitude")
+    .eq("geoid", geoid)
+    .maybeSingle<{
+      name: string;
+      state_code: string | null;
+      latitude: number;
+      longitude: number;
+    }>();
+
+  if (!place) throw new Error("We don't have a place with that id.");
+
+  const { count } = await supabase
+    .from("subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .is("city_id", null);
+
+  if ((count ?? 0) >= MAX_FOLLOWED_PLACES) {
+    throw new Error(
+      `That is ${MAX_FOLLOWED_PLACES} towns already — remove one before adding another.`,
+    );
+  }
+
+  const latitude = Number(place.latitude);
+  const longitude = Number(place.longitude);
+
+  // `city_id` stays null on purpose: it is what marks this as a row the city grid did
+  // not create and must never delete. See the delete scope in saveSelections.
+  const { error } = await supabase.from("subscriptions").upsert(
+    {
+      user_id: user.id,
+      city_id: null,
+      latitude,
+      longitude,
+      place_name: place.name,
+      state_code: place.state_code,
+      geo_cell: geoCellKey(latitude, longitude),
+    },
+    { onConflict: "user_id,latitude,longitude" },
+  );
+
+  if (error) throw new Error(`Could not follow that town: ${error.message}`);
+
+  revalidatePath("/app/subscriptions");
+  revalidatePath("/app");
+  return { name: place.name, stateCode: place.state_code };
+}
+
+/** Stop following a place. By row id, so RLS is the only ownership check needed. */
+export async function unfollowPlace(subscriptionId: number): Promise<void> {
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  await supabase
+    .from("subscriptions")
+    .delete()
+    .eq("id", subscriptionId)
+    .eq("user_id", user.id)
+    // Belt to the city grid's braces: this control only ever shows point
+    // subscriptions, so it should not be able to remove a curated one either.
+    .is("city_id", null);
+
+  revalidatePath("/app/subscriptions");
+  revalidatePath("/app");
+}
 
 /**
  * Follow an artist chosen from the search box.
