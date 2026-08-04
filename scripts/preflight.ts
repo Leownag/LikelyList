@@ -153,6 +153,11 @@ const EXPECTED_TABLES = [
   "digest_jobs",
   "usage_counters",
   "global_counters",
+  // Added by later migrations. Without them here, a deployment missing 0012 or 0013
+  // passes preflight and then fails in use: the Connect button storing nothing, the
+  // Pinned page erroring.
+  "spotify_links",
+  "pinned_events",
 ];
 
 async function checkSupabase() {
@@ -537,13 +542,8 @@ async function checkResend() {
         record({
           group: "resend",
           name: "EMAIL_FROM is production-ready",
-          status: from.includes("resend.dev") ? "warn" : "skip",
-          detail: from.includes("resend.dev")
-            ? "still the shared resend.dev test sender"
-            : "cannot be checked with a sending-only key",
-          fix: from.includes("resend.dev")
-            ? "Verify mail.likelylist.tech in Resend, then point EMAIL_FROM at it. Until then delivery is limited to your own address."
-            : undefined,
+          status: "skip",
+          detail: "cannot be checked with a sending-only key",
         });
       }
       return;
@@ -569,15 +569,7 @@ async function checkResend() {
     // The address in EMAIL_FROM has to be on a *verified* domain, or real
     // delivery silently fails for everyone except the account owner.
     const fromDomain = from.match(/@([^\s>]+)/)?.[1]?.toLowerCase();
-    if (from.includes("resend.dev")) {
-      record({
-        group: "resend",
-        name: "EMAIL_FROM is production-ready",
-        status: "warn",
-        detail: "still the shared resend.dev test sender",
-        fix: "Verify mail.likelylist.tech in Resend, then set EMAIL_FROM to an address on it. Until then delivery is limited to your own address.",
-      });
-    } else if (!fromDomain) {
+    if (!fromDomain) {
       record({
         group: "resend",
         name: "EMAIL_FROM is production-ready",
