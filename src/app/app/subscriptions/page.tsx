@@ -4,6 +4,10 @@ import type { City, Genre, GenrePref, Subscription } from "@/lib/db";
 import { SubscriptionEditor } from "./subscription-editor";
 import type { ToggleItem } from "./toggle-grid";
 import { ArtistPrefList } from "./artist-prefs";
+import { ArtistSearch } from "./artist-search";
+import { SpotifyCard, type SpotifyState } from "./spotify-card";
+import { readEnv } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const metadata = { title: "Cities & genres — likelylist" };
 
@@ -30,6 +34,8 @@ export default async function SubscriptionsPage() {
         .order("score", { ascending: false })
         .limit(60),
     ]);
+
+  const spotify = await loadSpotifyState(user.id);
 
   const cities = (citiesResult.data ?? []) as Pick<
     City,
@@ -86,9 +92,16 @@ export default async function SubscriptionsPage() {
       />
 
       <section>
-        <SectionHeading hint="Built up from the flyers you've fed in. Shows by these artists get pushed to the top of your digest.">
+        <SectionHeading hint="Search for anyone you don't want to miss, or let a screenshot fill this in. Shows by these artists get pushed to the top of your digest — and reach it even in a genre you don't follow.">
           Artists
         </SectionHeading>
+        {spotify ? (
+          <div className="mb-4">
+            <SpotifyCard state={spotify} />
+          </div>
+        ) : null}
+
+        <ArtistSearch />
         <ArtistPrefList
           artists={
             (artistsResult.data ?? []) as {
@@ -103,4 +116,38 @@ export default async function SubscriptionsPage() {
       </section>
     </div>
   );
+}
+
+/**
+ * The reader's Spotify connection, or null when the server has no Spotify credentials.
+ *
+ * Uses the admin client because `spotify_links` is deny-all under RLS — it holds a
+ * refresh token, so it is deliberately unreachable from any browser session. Scoped to
+ * this one user by the eq() below.
+ *
+ * Returning null rather than an "unconnected" state hides the card entirely on a
+ * deployment with no Spotify app configured, which is better than offering a button
+ * that can only fail.
+ */
+async function loadSpotifyState(userId: string): Promise<SpotifyState | null> {
+  const env = readEnv();
+  if (!env.spotifyClientId || !env.spotifyClientSecret) return null;
+
+  const supabase = createAdminClient(env);
+  const { data } = await supabase
+    .from("spotify_links")
+    .select("last_imported_at, last_artist_count, invalid_since")
+    .eq("user_id", userId)
+    .maybeSingle<{
+      last_imported_at: string | null;
+      last_artist_count: number | null;
+      invalid_since: string | null;
+    }>();
+
+  return {
+    connected: Boolean(data),
+    lastImportedAt: data?.last_imported_at ?? null,
+    lastArtistCount: data?.last_artist_count ?? null,
+    needsReconnect: Boolean(data?.invalid_since),
+  };
 }

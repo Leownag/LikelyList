@@ -16,6 +16,9 @@ export type AppEnv = {
   openaiApiKey: string;
   openaiVisionModel: string;
   feedDailyUploadLimit: number;
+  artistDailySearchLimit: number;
+  spotifyClientId: string;
+  spotifyClientSecret: string;
   youtubeApiKey: string;
   youtubeDailySearchLimit: number;
   resendApiKey: string;
@@ -63,13 +66,24 @@ export function readEnv(raw: RawEnv = process.env as RawEnv): AppEnv {
     openaiApiKey: optional(raw, "OPENAI_API_KEY"),
     openaiVisionModel: optional(raw, "OPENAI_VISION_MODEL", "gpt-4o-mini"),
     feedDailyUploadLimit: int(raw, "FEED_DAILY_UPLOAD_LIMIT", 20),
+    // Typing into the artist box spends Ticketmaster's 5000/day event quota, one
+    // call per keystroke burst. Per-user rather than project-wide, so one person
+    // exploring cannot starve everyone else's Friday send.
+    artistDailySearchLimit: int(raw, "ARTIST_DAILY_SEARCH_LIMIT", 60),
+    // Absent is a supported state: the connect button hides and nothing else changes.
+    spotifyClientId: optional(raw, "SPOTIFY_CLIENT_ID"),
+    spotifyClientSecret: optional(raw, "SPOTIFY_CLIENT_SECRET"),
     youtubeApiKey: optional(raw, "YOUTUBE_API_KEY"),
     // Ticketmaster's own cap is 100 search.list calls/day for the whole
     // project. Default a little under it so a manual test run cannot exhaust
     // the budget the Friday digest needs.
     youtubeDailySearchLimit: int(raw, "YOUTUBE_DAILY_SEARCH_LIMIT", 90),
     resendApiKey: optional(raw, "RESEND_API_KEY"),
-    emailFrom: optional(raw, "EMAIL_FROM", "likelylist <onboarding@resend.dev>"),
+    // "LikelyList", capitalised, because this string is the sender name an inbox
+    // shows in its list view. The lowercase wordmark is a typographic treatment that
+    // belongs on a page it can be styled on; rendered as plain text next to real
+    // senders it just looks like a mistake.
+    emailFrom: optional(raw, "EMAIL_FROM", "LikelyList <onboarding@resend.dev>"),
     emailUnsubscribeMailto: optional(raw, "EMAIL_UNSUBSCRIBE_MAILTO"),
     siteUrl: optional(raw, "NEXT_PUBLIC_SITE_URL", "http://localhost:3000"),
     cronSecret: optional(raw, "CRON_SECRET"),

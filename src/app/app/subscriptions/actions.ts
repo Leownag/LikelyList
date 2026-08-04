@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, requireUser } from "@/lib/supabase/server";
+import { normalizeName } from "@/lib/normalize";
+import { readEnv } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Subscription and preference mutations.
@@ -124,6 +127,99 @@ export async function saveSelections(input: {
   revalidatePath("/app");
 
   return { cities: wantedCities.size, genres: wantedGenres.size };
+}
+
+/**
+ * The score a hand-picked artist starts on.
+ *
+ * Above the strongest a screenshot can produce (`primary` = 1.0 in
+ * lib/feeds/apply.ts), because typing a name in is a clearer statement of intent
+ * than appearing on a playlist someone screenshotted. buildDigest caps the total
+ * artist contribution anyway, so this cannot swamp a week.
+ */
+const EXPLICIT_ARTIST_SCORE = 1.5;
+
+/**
+ * Follow an artist chosen from the search box.
+ *
+ * The Ticketmaster identity is resolved before this is called (see
+ * /api/artists/search) so that `normalized_name` here matches the name that
+ * arrives in event lineups — which is the only reason the follow can ever match
+ * an event.
+ *
+ * An existing row is raised to the explicit score rather than incremented: this
+ * is a statement, not another sighting, and re-adding an artist should not keep
+ * inflating them.
+ */
+export async function followArtist(input: {
+  name: string;
+  tmAttractionId: string | null;
+}): Promise<{ name: string }> {
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  const name = input.name.trim().slice(0, 200);
+  const normalized = normalizeName(name);
+  if (!normalized) throw new Error("That name is empty once normalised.");
+
+  const { data: existing } = await supabase
+    .from("artist_prefs")
+    .select("id, score")
+    .eq("user_id", user.id)
+    .eq("normalized_name", normalized)
+    .maybeSingle<{ id: number; score: number }>();
+
+  const now = new Date().toISOString();
+
+  if (existing) {
+    await supabase
+      .from("artist_prefs")
+      .update({
+        name,
+        tm_attraction_id: input.tmAttractionId,
+        score: Math.max(Number(existing.score), EXPLICIT_ARTIST_SCORE),
+        source: "explicit",
+        last_seen_at: now,
+      })
+      .eq("id", existing.id);
+  } else {
+    await supabase.from("artist_prefs").insert({
+      user_id: user.id,
+      name,
+      normalized_name: normalized,
+      tm_attraction_id: input.tmAttractionId,
+      score: EXPLICIT_ARTIST_SCORE,
+      source: "explicit",
+      last_seen_at: now,
+    });
+  }
+
+  revalidatePath("/app/subscriptions");
+  revalidatePath("/app");
+
+  return { name };
+}
+
+/**
+ * Disconnects Spotify.
+ *
+ * Deletes the link row, which is where the refresh token lives, so the credential is
+ * gone rather than merely flagged. The artists it imported are deliberately left
+ * behind: they are the reader's preferences now, and silently emptying their follow
+ * list because they unlinked an account would destroy work they did not ask to undo.
+ * They can remove any of them individually.
+ */
+export async function disconnectSpotify() {
+  const user = await requireUser();
+  const env = readEnv();
+
+  // The admin client, because spotify_links is deny-all under RLS — it holds a
+  // long-lived credential and is deliberately unreachable from a browser session.
+  // Scoped to this user's own row by the eq() below.
+  const supabase = createAdminClient(env);
+  await supabase.from("spotify_links").delete().eq("user_id", user.id);
+
+  revalidatePath("/app/subscriptions");
 }
 
 export async function removeArtistPref(artistPrefId: number) {
