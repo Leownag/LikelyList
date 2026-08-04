@@ -5,6 +5,7 @@ import {
   type TmSegmentNode,
 } from "./types";
 import { normalizeName } from "@/lib/normalize";
+import { byGenrePopularity } from "./genre-ranking";
 
 /**
  * Music genre enumeration.
@@ -57,5 +58,7 @@ export async function fetchMusicGenres(client: TmClient): Promise<MusicGenre[]> 
     if (rows.length < pageSize || page + 1 >= totalPages) break;
   }
 
-  return [...genres.values()].sort((a, b) => a.name.localeCompare(b.name));
+  // Ranked here rather than at the call sites, so the seed script and the weekly
+  // taxonomy refresh cannot drift into different orders.
+  return [...genres.values()].sort(byGenrePopularity);
 }
