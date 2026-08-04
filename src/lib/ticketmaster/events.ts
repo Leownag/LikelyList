@@ -18,12 +18,20 @@ const PAGE_SIZE = 100;
 
 export type EventSearchParams = {
   /** Exactly the string Ticketmaster's `city` parameter expects. */
-  city: string;
+  city?: string;
+  /**
+   * A postal code, as an alternative to `city`. Ticketmaster accepts this
+   * directly, which is what makes the explore page's ZIP search possible without
+   * a geocoding step.
+   */
+  postalCode?: string;
   countryCode?: string;
   /** Inclusive UTC start of the window. */
   startDateTime: Date;
   /** Exclusive UTC end of the window. */
   endDateTime: Date;
+  /** Caps pages fetched. The explore page wants one page, not ten. */
+  maxPages?: number;
 };
 
 /** Ticketmaster rejects date-times carrying milliseconds. */
@@ -35,12 +43,20 @@ export async function searchMusicEvents(
   client: TmClient,
   params: EventSearchParams,
 ): Promise<TmEvent[]> {
+  if (!params.city && !params.postalCode) {
+    throw new Error("searchMusicEvents needs either a city or a postal code.");
+  }
+
   const events: TmEvent[] = [];
-  const maxPages = Math.floor(DEEP_PAGING_LIMIT / PAGE_SIZE);
+  const maxPages = Math.min(
+    params.maxPages ?? Number.POSITIVE_INFINITY,
+    Math.floor(DEEP_PAGING_LIMIT / PAGE_SIZE),
+  );
 
   for (let page = 0; page < maxPages; page++) {
     const response = await client.get<TmEventsResponse>("/events.json", {
       city: params.city,
+      postalCode: params.postalCode,
       countryCode: params.countryCode ?? "US",
       // The documented Music segment ID. Genre IDs are not hardcoded anywhere
       // (see scripts/seed-genres.ts) but this one the docs do publish.
