@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient, requireUser } from "@/lib/supabase/server";
+import { safeExternalUrl } from "@/lib/enrich/links";
 import type { PinInput } from "@/lib/pins/types";
 
 /**
@@ -18,10 +19,25 @@ import type { PinInput } from "@/lib/pins/types";
  * network from a browser, which makes it input regardless of who wrote the form.
  */
 
+/**
+ * A link we are willing to store and later render as an `href`.
+ *
+ * `z.string().url()` is not that check — it accepts `javascript:` and `data:` just as
+ * happily as `https:`, and the stored value comes back out of the database as an
+ * `href` on the pinned card. Dropped to null rather than rejected: a pin whose link
+ * we distrust is still a useful reminder, and refusing the whole pin would turn a
+ * scheme we do not recognise into a broken button.
+ */
+const externalUrl = z
+  .string()
+  .max(2000)
+  .nullable()
+  .transform((value) => safeExternalUrl(value));
+
 const PinSchema = z.object({
   tmEventId: z.string().min(1).max(64),
   name: z.string().min(1).max(300),
-  url: z.string().url().max(2000).nullable(),
+  url: externalUrl,
   // Dates are stored as given, not parsed into an instant: the local reading is what
   // is printed on the ticket.
   localDate: z
@@ -35,7 +51,7 @@ const PinSchema = z.object({
   timezone: z.string().max(64).nullable(),
   venueName: z.string().max(300).nullable(),
   cityLabel: z.string().max(300).nullable(),
-  imageUrl: z.string().url().max(2000).nullable(),
+  imageUrl: externalUrl,
   genreName: z.string().max(120).nullable(),
   performers: z
     .array(

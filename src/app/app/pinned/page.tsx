@@ -2,8 +2,12 @@ import { createClient, requireUser } from "@/lib/supabase/server";
 import { EmptyState, SectionHeading } from "@/components/ui";
 import { EventCard } from "@/components/event-card";
 import type { Pin } from "@/lib/pins/types";
+import { getI18n } from "@/lib/i18n/server";
+import { SLOT, interleave } from "@/lib/i18n/interleave";
 
-export const metadata = { title: "Pinned — likelylist" };
+export async function generateMetadata() {
+  return { title: (await getI18n()).t("title.pinned") };
+}
 
 /**
  * The shows the reader saved.
@@ -20,6 +24,7 @@ export const metadata = { title: "Pinned — likelylist" };
 export default async function PinnedPage() {
   const user = await requireUser();
   const supabase = await createClient();
+  const { t } = await getI18n();
 
   const { data } = await supabase
     .from("pinned_events")
@@ -41,21 +46,20 @@ export default async function PinnedPage() {
   return (
     <div className="space-y-10">
       <section>
-        <SectionHeading hint="Saved from a search or your feed. These are kept as their own copy, so they stay here after the listing itself has rolled out of our cache.">
-          Pinned
-        </SectionHeading>
+        <SectionHeading hint={t("pinned.hint")}>{t("pinned.heading")}</SectionHeading>
 
         {upcoming.length === 0 ? (
-          <EmptyState title="nothing pinned yet">
-            Pin a show from{" "}
-            <a className="text-accent underline" href="/app/feed">
-              your feed
-            </a>{" "}
-            or{" "}
-            <a className="text-accent underline" href="/explore">
-              a search
-            </a>
-            , and it will wait here with an add-to-calendar button.
+          <EmptyState title={t("pinned.empty.title")}>
+            {/* Two links inside one sentence, so the translation places them rather than
+                being handed a pre-assembled English clause order. */}
+            {interleave(t("pinned.empty.body", { feed: SLOT, search: SLOT }), [
+              <a key="feed" className="text-accent underline" href="/app/feed">
+                {t("pinned.empty.feed")}
+              </a>,
+              <a key="search" className="text-accent underline" href="/explore">
+                {t("pinned.empty.search")}
+              </a>,
+            ])}
           </EmptyState>
         ) : (
           <ul className="space-y-3">
@@ -70,8 +74,8 @@ export default async function PinnedPage() {
 
       {past.length > 0 ? (
         <section>
-          <SectionHeading hint="Kept, not cleaned up — they are yours to remove.">
-            Already happened
+          <SectionHeading hint={t("pinned.past.hint")}>
+            {t("pinned.past.heading")}
           </SectionHeading>
           <ul className="space-y-3 opacity-60">
             {past.map((pin) => (
