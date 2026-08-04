@@ -84,6 +84,19 @@ export type Digest = {
    * Ticketmaster data that would justify calling it a "top shows" list either.
    */
   fallbackReason: "no_preferences" | null;
+  /**
+   * How `events` is actually ordered.
+   *
+   * `"relevance"` when the scores differ, `"date"` when they are all equal — which is
+   * the normal case for somebody who follows only genres, because every explicit genre
+   * weighs 1.0 and the sort then falls entirely through to the date tiebreak.
+   *
+   * Surfaced rather than hidden because the alternative is telling a reader their email
+   * is ranked by relevance when it is a chronological list. There is no honest
+   * tiebreaker available: Ticketmaster publishes no popularity or listing-count signal
+   * (the same gap that makes genre-ranking.ts a hand-curated file).
+   */
+  ordering: "relevance" | "date";
   previewUrl: string;
   unsubscribeUrl: string;
   unsubscribeMailto: string | null;

@@ -64,7 +64,17 @@ export default async function FeedPage() {
     <div className="space-y-8">
       <section>
         <SectionHeading
-          hint={`${window.startDate} … ${window.endDate} — the same scoring the Friday email uses, so this is what it would say if it went out now.`}
+          hint={
+            `${window.startDate} … ${window.endDate} — the same scoring the Friday email ` +
+            `uses, so this is what it would say if it went out now.` +
+            (digest && digest.events.length > 1
+              ? digest.ordering === "relevance"
+                ? " Best matches first."
+                : // Genres alone all weigh the same, so there is nothing to rank by and
+                  // the list is chronological. Said plainly rather than implied away.
+                  " In date order — follow some artists and the best matches rise to the top."
+              : "")
+          }
         >
           My feed
         </SectionHeading>

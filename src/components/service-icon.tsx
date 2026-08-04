@@ -31,13 +31,15 @@ export type LinkService = "youtube" | "spotify" | "google" | "apple";
 
 const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> = {
   youtube: {
-    // Official mark, unmodified, from YouTube's brand resources.
-    src: "/brand/youtube.svg",
+    // Official mark, unmodified, from YouTube's brand resources — the full-colour icon
+    // from the Digital set. A PNG because YouTube ships no SVG in that kit, and
+    // resaving their artwork as one would be modifying it.
+    src: "/brand/youtube.png",
     label: "YouTube",
     alt: "YouTube",
   },
   spotify: {
-    // Official mark, unmodified, from Spotify's design guidelines.
+    // Official mark, unmodified — Primary_Logo_Green_RGB from Spotify's 2024 kit.
     src: "/brand/spotify.svg",
     label: "Spotify",
     alt: "Spotify",
@@ -45,6 +47,10 @@ const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> =
   // The calendar targets. Same rule as above and the same reason it is an asset rather
   // than a hand-drawn glyph: both companies publish a mark and forbid redrawing it, and
   // a pixel-art Apple logo would be a modified logo.
+  // No asset shipped for either calendar target, so both render as their name alone —
+  // which is always compliant. Google publishes a mark that could go here; Apple's
+  // guidelines do not permit using their app icons in third-party UI at all, so that one
+  // should stay text.
   google: {
     src: "/brand/google-calendar.svg",
     label: "Google Calendar",

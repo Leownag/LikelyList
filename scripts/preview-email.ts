@@ -149,6 +149,7 @@ const digest: Digest = {
   ],
   cities: ["Boston", "Brooklyn"],
   fallbackReason: null,
+  ordering: "relevance" as const,
   previewUrl: "http://localhost:3000/preview/digest/sample.token",
   unsubscribeUrl: "http://localhost:3000/unsubscribe?t=sample.token",
   unsubscribeMailto: "unsubscribe@mail.example.com",

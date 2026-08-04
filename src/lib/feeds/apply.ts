@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/normalize";
+import { accumulateFeedScore } from "@/lib/artist-score";
 import { createTicketmasterClient } from "@/lib/ticketmaster/client";
 import {
   findAttractionByName,
@@ -212,9 +213,13 @@ export async function applyFeed(
         tm_attraction_id: artist.tmAttractionId ?? null,
         // The increment is computed here because a Postgres upsert cannot do
         // `score = score + n` through PostgREST.
-        score:
-          (scoreByName.get(artist.normalized) ?? 0) +
-          PROMINENCE_WEIGHT[artist.prominence ?? "unknown"],
+        // Accumulates across sightings, but bounded — see accumulateFeedScore. Without
+        // the bound, re-uploading one screenshot pushed a single artist high enough to
+        // satisfy buildDigest's artist cap alone and crowd out the rest of the week.
+        score: accumulateFeedScore(
+          scoreByName.get(artist.normalized) ?? 0,
+          artist.prominence,
+        ),
         source: "feed" as const,
         last_seen_at: now,
       })),
@@ -279,13 +284,6 @@ export async function applyFeed(
   };
 }
 
-/** How much one appearance moves an artist's score. */
-const PROMINENCE_WEIGHT: Record<string, number> = {
-  primary: 1,
-  mentioned: 0.4,
-  // The model could not tell. Between the two, leaning towards "meaningful".
-  unknown: 0.7,
-};
 
 /** Sort key: primary first, then unknown, then mentioned. */
 function prominenceRank(prominence: ConfirmedArtist["prominence"]): number {

@@ -1,11 +1,13 @@
 name: CI
 
-# Every push and every PR. Nothing here touches the real database or spends an API
-# quota, so it needs no secrets and is safe to run on a fork's pull request.
+# DISABLED — manual only for now.
+#
+# Nothing here touches the real database or spends an API quota, so it needs no secrets
+# and is safe on a fork's pull request. Re-enable by uncommenting the two triggers below.
 on:
-  push:
-    branches: ["**"]
-  pull_request:
+  # push:
+  #   branches: ["**"]
+  # pull_request:
   workflow_dispatch:
 
 concurrency:

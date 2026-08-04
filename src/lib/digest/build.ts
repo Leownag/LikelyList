@@ -249,12 +249,22 @@ export async function buildDigest(
     });
   }
 
-  // Relevance first, date as the tie-break. In the unfiltered case every score is
-  // 0, so this degrades to pure date order, which is the only defensible ordering
-  // when there is nothing to rank by.
+  // Relevance first, date as the tie-break.
   scored.sort(
     (a, b) => b.score - a.score || a.localDate.localeCompare(b.localDate),
   );
+
+  // Whether that sort actually ranked anything.
+  //
+  // It often does not. Every explicitly-chosen genre weighs exactly 1.0, so a reader who
+  // follows only genres gets identical scores across the board and the "ranking" is
+  // purely chronological — and in the unfiltered case every score is 0. Calling that
+  // relevance-ordered in the email would be a claim the data does not support, so it is
+  // measured and passed on instead.
+  const ordering: "relevance" | "date" =
+    scored.length > 1 && scored.some((event) => event.score !== scored[0].score)
+      ? "relevance"
+      : "date";
 
   // --- On sale this week ------------------------------------------------------
   //
@@ -331,6 +341,7 @@ export async function buildDigest(
     onsale: onsale.slice(0, MAX_ONSALE_EVENTS),
     cities: cityNames,
     fallbackReason: unfiltered ? "no_preferences" : null,
+    ordering,
     previewUrl: await previewUrl(env, userId),
     unsubscribeUrl: await unsubscribeUrl(env, userId),
     unsubscribeMailto: env.emailUnsubscribeMailto || null,
@@ -478,6 +489,7 @@ async function emptyDigest(
     onsale: [],
     cities,
     fallbackReason: null,
+    ordering: "date",
     previewUrl: await previewUrl(env, profile.id),
     unsubscribeUrl: await unsubscribeUrl(env, profile.id),
     unsubscribeMailto: env.emailUnsubscribeMailto || null,

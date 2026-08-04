@@ -109,6 +109,7 @@ export function DigestEmail({ digest }: { digest: Digest }) {
             windowLabel={digest.windowLabel}
             cities={digest.cities}
             siteUrl={digest.siteUrl}
+            ordering={shown.length > 1 ? digest.ordering : null}
           />
 
           <PixelStrip seed={digest.userId} />
@@ -167,10 +168,13 @@ function Header({
   windowLabel,
   cities,
   siteUrl,
+  ordering,
 }: {
   windowLabel: string;
   cities: string[];
   siteUrl: string;
+  /** Null when there is nothing to order. */
+  ordering: "relevance" | "date" | null;
 }) {
   return (
     <Section style={{ paddingBottom: "16px" }}>
@@ -230,6 +234,16 @@ function Header({
       >
         {windowLabel}
         {cities.length > 0 ? ` · ${cities.join(", ")}` : ""}
+        {/*
+          Names the sort this actually is. A reader who follows only genres gets an
+          identical score on every event — each explicit genre weighs exactly 1.0 — so
+          the list is chronological, and implying it was ranked for them would be a
+          claim the data cannot support. There is no honest tiebreaker to add:
+          Ticketmaster publishes no popularity or listing-count signal.
+        */}
+        {ordering
+          ? ` · ${ordering === "relevance" ? "best matches first" : "in date order"}`
+          : ""}
       </Text>
     </Section>
   );

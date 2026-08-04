@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient, requireUser } from "@/lib/supabase/server";
 import { normalizeName } from "@/lib/normalize";
 import { geoCellKey } from "@/lib/geo-cell";
+// The scale every artist signal shares — see lib/artist-score for why the numbers
+// only make sense relative to each other.
+import { EXPLICIT_ARTIST_SCORE } from "@/lib/artist-score";
 import type { City } from "@/lib/db";
 import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -156,15 +159,6 @@ export async function saveSelections(input: {
   return { cities: wantedCities.size, genres: wantedGenres.size };
 }
 
-/**
- * The score a hand-picked artist starts on.
- *
- * Above the strongest a screenshot can produce (`primary` = 1.0 in
- * lib/feeds/apply.ts), because typing a name in is a clearer statement of intent
- * than appearing on a playlist someone screenshotted. buildDigest caps the total
- * artist contribution anyway, so this cannot swamp a week.
- */
-const EXPLICIT_ARTIST_SCORE = 1.5;
 
 /**
  * Follow an artist chosen from the search box.

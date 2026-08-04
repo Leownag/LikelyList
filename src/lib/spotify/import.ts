@@ -1,6 +1,7 @@
 import type { AdminClient } from "@/lib/supabase/admin";
 import type { AppEnv } from "@/lib/env";
 import { normalizeName } from "@/lib/normalize";
+import { spotifyRankScore } from "@/lib/artist-score";
 import {
   SpotifyAuthError,
   fetchTopArtists,
@@ -18,19 +19,6 @@ import {
 /** How long a connection may go unrefreshed before the drainer re-imports. */
 export const IMPORT_INTERVAL_DAYS = 30;
 
-/**
- * Score range for an imported artist.
- *
- * Spotify hands back the list in order, so preserving that order costs nothing and
- * makes the digest rank a #2 artist above a #47 one. This is not the "genre analysis"
- * that was explicitly not wanted — no inference is happening, the ordering is simply
- * not being thrown away.
- *
- * Top of the range sits just below EXPLICIT_ARTIST_SCORE in the subscriptions action:
- * typing a name in by hand is a stronger statement than having listened a lot.
- */
-const TOP_SCORE = 1.4;
-const BOTTOM_SCORE = 0.6;
 
 export type ImportOutcome =
   | { status: "imported"; artistCount: number }
@@ -153,12 +141,6 @@ export function buildArtistRows(
   const seen = new Set<string>();
   const rows: ArtistPrefRow[] = [];
 
-  // Spread across the band by position in Spotify's own ordering. Computed from the
-  // input length rather than an assumed 50, because a new account can come back with
-  // three artists and would otherwise get three near-identical scores.
-  const step =
-    artists.length > 1 ? (TOP_SCORE - BOTTOM_SCORE) / (artists.length - 1) : 0;
-
   artists.forEach((artist, index) => {
     const normalized = normalizeName(artist.name);
     if (!normalized || seen.has(normalized)) return;
@@ -171,7 +153,10 @@ export function buildArtistRows(
       // Spotify's id is not Ticketmaster's, and guessing a mapping would be worse
       // than leaving this null — digest matching runs on the normalised name anyway.
       tm_attraction_id: null,
-      score: Number((TOP_SCORE - step * index).toFixed(3)),
+      // Spread across the band by position in Spotify's own ordering, computed from
+      // the input length rather than an assumed 50 — a new account can come back with
+      // one artist, which is the case that used to produce NaN.
+      score: spotifyRankScore(index, artists.length),
       source: "spotify",
       last_seen_at: now,
     });
@@ -216,7 +201,54 @@ async function writeArtistPrefs(
 
   if (error) throw new Error(`Writing artist preferences failed: ${error.message}`);
 
+  await retireDroppedArtists(supabase, userId, rows);
+
   return writable.length;
+}
+
+/**
+ * Removes artists this import no longer lists.
+ *
+ * Without this the follow list only ever grew. Each monthly run wrote the current top
+ * 50 and left everybody who had fallen out exactly where they were, so after a year a
+ * reader's list was the union of twelve months of top fifties — two or three hundred
+ * names — and their digest filled up with what they were listening to last spring. It
+ * degrades steadily, and it is close to impossible for the reader to diagnose: nothing
+ * looks broken, the recommendations just quietly stop being about them.
+ *
+ * Scoped hard to `source = 'spotify'`. A name they typed in, or one a screenshot found,
+ * is theirs and is not Spotify's to retract — deleting those would be this function
+ * silently undoing work the reader did by hand.
+ */
+async function retireDroppedArtists(
+  supabase: AdminClient,
+  userId: string,
+  current: ArtistPrefRow[],
+): Promise<void> {
+  const keep = current.map((row) => row.normalized_name);
+
+  const query = supabase
+    .from("artist_prefs")
+    .delete()
+    .eq("user_id", userId)
+    .eq("source", "spotify");
+
+  // An empty `keep` would make the `not in ()` filter invalid, and an import that
+  // returned nothing is far more likely to be a bad response than a genuinely empty
+  // library — so nothing is retired in that case.
+  if (keep.length === 0) return;
+
+  const { error } = await query.not(
+    "normalized_name",
+    "in",
+    `(${keep.map((name) => `"${name.replace(/"/g, '""')}"`).join(",")})`,
+  );
+
+  if (error) {
+    // Not fatal. A stale extra artist is a much smaller problem than a failed import,
+    // and the next run will try again.
+    console.error("[SPOTIFY_RETIRE]", error.message);
+  }
 }
 
 /**

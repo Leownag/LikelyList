@@ -1,15 +1,16 @@
 name: Scheduled checks
 
-# Thursday morning UTC, deliberately the day before the Friday send.
+# DISABLED — manual only for now. Re-enable by uncommenting the schedule.
 #
-# The failure this exists to catch is an expired credential. Every one of these keys
-# can stop working without anybody touching the code — a rotated Ticketmaster key, a
-# Resend domain that fell out of verification, an OpenAI key with no balance — and the
-# way that surfaces today is subscribers not receiving an email. Finding out on
-# Thursday leaves a day to fix it.
+# The schedule is Thursday morning UTC, deliberately the day before the Friday send.
+# The failure it catches is an expired credential: a rotated Ticketmaster key, a Resend
+# domain that fell out of verification, an OpenAI key with no balance. Every one of
+# those can happen without anybody touching the code, and the way it currently surfaces
+# is subscribers not receiving an email. Thursday leaves a day to fix it — which is why
+# this is worth turning back on before there are real subscribers.
 on:
-  schedule:
-    - cron: "0 9 * * 4"
+  # schedule:
+  #   - cron: "0 9 * * 4"
   workflow_dispatch:
 
 jobs:

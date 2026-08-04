@@ -14,6 +14,7 @@ import {
   renderWithinSizeBudget,
   shrinkOneStep,
 } from "./render";
+import { ASSET_SRC } from "@/components/service-icon";
 
 /** A worst-case-ish digest: many events, long bills, every field populated. */
 function makeDigest(
@@ -55,6 +56,7 @@ function makeDigest(
     onsale: [],
     cities: ["Boston", "Brooklyn"],
     fallbackReason: null,
+    ordering: "relevance" as const,
     previewUrl: "https://likelylist.example.com/preview/digest/tok.sig",
     unsubscribeUrl: "https://likelylist.example.com/unsubscribe?t=tok.sig",
     unsubscribeMailto: "unsubscribe@mail.likelylist.example.com",
@@ -127,8 +129,11 @@ test("every image has explicit dimensions, and content images have alt text", as
 
 test("the brand marks are present but never the only label", async () => {
   const { html } = await renderDigestEmail(makeDigest(2, 2));
-  assert.ok(html.includes("/brand/youtube.svg"));
-  assert.ok(html.includes("/brand/spotify.svg"));
+  // Asserted through the component rather than as literal paths. The YouTube asset
+  // moved from .svg to .png — their kit ships no SVG — and a hard-coded path here just
+  // fails without saying anything about whether the mark is actually rendered.
+  assert.ok(html.includes(ASSET_SRC.youtube), `missing ${ASSET_SRC.youtube}`);
+  assert.ok(html.includes(ASSET_SRC.spotify), `missing ${ASSET_SRC.spotify}`);
 
   // With every image stripped, the service names must still be readable — an icon
   // that fails to load must not leave an unexplained gap where a link was.
