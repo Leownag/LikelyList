@@ -1,0 +1,76 @@
+name: CI
+
+# Every push and every PR. Nothing here touches the real database or spends an API
+# quota, so it needs no secrets and is safe to run on a fork's pull request.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A newer push makes an in-flight run irrelevant. Cancelling keeps the queue short
+  # on a repo that gets a lot of small commits.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck · lint · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          # Pinned rather than lts/*, so a new LTS cannot change the runtime under a
+          # green build. The code needs Node 20.6+ for --env-file and 20.11+ for
+          # import.meta.dirname; 22 clears both.
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run lint
+      # node:test via tsx. The suite is pure logic with no fixtures and no network,
+      # which is why it finishes in about a second and belongs on every push.
+      - run: npm test
+
+  build:
+    name: Cloudflare build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The one check that cannot be replaced by a unit test.
+      #
+      # `next build` passing does not mean the Cloudflare adapter produced a worker.
+      # The documented example: a proxy.ts in the tree makes opennextjs-cloudflare
+      # emit no worker at all, silently, and the failure only shows up at deploy.
+      # So the build is run and then the artifact is asserted to exist.
+      - run: npx opennextjs-cloudflare build
+        env:
+          # Placeholders. readEnv() hard-requires the Supabase pair, and this job is
+          # proving the build works — it never deploys, so nothing bakes in that
+          # matters. Real values live in Cloudflare secrets at runtime.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          NEXT_PUBLIC_SITE_URL: https://likelylist.tech
+
+      - name: Assert a worker was emitted
+        run: |
+          if [ ! -f .open-next/worker.js ]; then
+            echo "::error::The adapter produced no .open-next/worker.js."
+            echo "This is the failure mode a passing 'next build' hides — see the"
+            echo "README on proxy.ts and opennextjs-cloudflare#962."
+            exit 1
+          fi
+          ls -la .open-next/worker.js

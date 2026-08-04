@@ -1,0 +1,100 @@
+name: Scheduled checks
+
+# Thursday morning UTC, deliberately the day before the Friday send.
+#
+# The failure this exists to catch is an expired credential. Every one of these keys
+# can stop working without anybody touching the code — a rotated Ticketmaster key, a
+# Resend domain that fell out of verification, an OpenAI key with no balance — and the
+# way that surfaces today is subscribers not receiving an email. Finding out on
+# Thursday leaves a day to fix it.
+on:
+  schedule:
+    - cron: "0 9 * * 4"
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    name: Credentials actually work
+    runs-on: ubuntu-latest
+    # Named so the required secrets are visible in the repo's Environments UI rather
+    # than only in this file.
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The scripts read .env.local because that is how they are run locally, and
+      # keeping one code path means the thing verified in CI is the thing a developer
+      # can reproduce. The runner is ephemeral, so writing secrets to a file here is
+      # no more exposed than putting them in the environment.
+      - name: Write .env.local from secrets
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          UNSUBSCRIBE_HMAC_SECRET: ${{ secrets.UNSUBSCRIBE_HMAC_SECRET }}
+          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+        run: |
+          # printenv rather than echo, so a value containing a quote or a $ cannot be
+          # reinterpreted by the shell on its way into the file.
+          for key in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
+                     SUPABASE_SERVICE_ROLE_KEY TICKETMASTER_API_KEY OPENAI_API_KEY \
+                     YOUTUBE_API_KEY RESEND_API_KEY EMAIL_FROM CRON_SECRET \
+                     UNSUBSCRIBE_HMAC_SECRET NEXT_PUBLIC_SITE_URL; do
+            printf '%s=%s\n' "$key" "$(printenv "$key")" >> .env.local
+          done
+
+      # Makes one cheap real request per service. Never sends email, and deliberately
+      # avoids YouTube's search.list, which has a hard 100/day ceiling for the whole
+      # project — a health check must not spend the budget the digest needs.
+      - run: npm run preflight
+
+  security:
+    name: Live RLS assertions
+    runs-on: ubuntu-latest
+    environment: production
+    # Runs even when preflight fails: a credential problem and a privilege problem are
+    # independent, and knowing about both in one run beats finding the second next week.
+    if: ${{ always() }}
+    needs: preflight
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Write .env.local from secrets
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          for key in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
+                     SUPABASE_SERVICE_ROLE_KEY; do
+            printf '%s=%s\n' "$key" "$(printenv "$key")" >> .env.local
+          done
+
+      # Asserts both directions against the real database — that a user cannot rewrite
+      # their delivery address, and that they can still change their timezone — using a
+      # throwaway account it creates and deletes.
+      #
+      # This does write to production, which is why it is scheduled rather than run on
+      # every push: a privilege regression is worth catching weekly, not worth touching
+      # the live database on every commit.
+      - run: npm run security:check

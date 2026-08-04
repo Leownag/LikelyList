@@ -420,6 +420,39 @@ npm run preview
 
 ---
 
+## Continuous integration
+
+Two workflows, in `.github/workflows/`.
+
+**`ci.yml`** runs on every push and pull request: `typecheck`, `lint`, `test`, and the
+Cloudflare build. It needs no secrets, because none of it touches the database or
+spends a quota.
+
+The build job is the one that cannot be replaced by a unit test. A passing
+`next build` does not mean the adapter produced a worker — a `proxy.ts` in the tree
+makes `opennextjs-cloudflare` emit nothing at all, silently — so the job builds and
+then asserts `.open-next/worker.js` exists.
+
+**`scheduled-checks.yml`** runs Thursday morning, the day before the send, and can be
+triggered by hand. It runs `preflight` and `security:check` against the real project.
+Thursday is the point: every credential here can expire without anybody touching the
+code, and the way that currently surfaces is subscribers not getting an email.
+
+It needs repository secrets — the same names as `.env.example` — set under an
+environment called `production`. `security:check` writes to the live database (a
+throwaway account it creates and deletes), which is why it is scheduled rather than
+run on every push.
+
+Two things are deliberately **not** on Actions:
+
+- **The weekly send.** It already runs on Cloudflare cron, inside the Workers runtime
+  and next to its data. A second scheduler pointed at the same queue is how an email
+  gets sent twice.
+- **Deploys.** `npm run deploy` stays a deliberate act; nothing here pushes to
+  production on a merge.
+
+---
+
 ## Commands
 
 | Command | What it does |
