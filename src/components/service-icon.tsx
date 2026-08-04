@@ -27,7 +27,7 @@
  * nothing beside it becomes an unexplained gap.
  */
 
-export type LinkService = "youtube" | "spotify";
+export type LinkService = "youtube" | "spotify" | "google" | "apple";
 
 const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> = {
   youtube: {
@@ -41,6 +41,19 @@ const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> =
     src: "/brand/spotify.svg",
     label: "Spotify",
     alt: "Spotify",
+  },
+  // The calendar targets. Same rule as above and the same reason it is an asset rather
+  // than a hand-drawn glyph: both companies publish a mark and forbid redrawing it, and
+  // a pixel-art Apple logo would be a modified logo.
+  google: {
+    src: "/brand/google-calendar.svg",
+    label: "Google Calendar",
+    alt: "Google Calendar",
+  },
+  apple: {
+    src: "/brand/apple-calendar.svg",
+    label: "Apple Calendar",
+    alt: "Apple Calendar",
   },
 };
 
@@ -86,6 +99,20 @@ export function ServiceLink({
     </a>
   );
 }
+
+/**
+ * Where each mark lives, for callers that need the path rather than a whole link.
+ *
+ * Exported so add-to-calendar can render the same asset with the same
+ * degrade-to-nothing behaviour without duplicating the paths — three copies of a
+ * brand asset path is how one of them ends up stale.
+ */
+export const ASSET_SRC: Record<LinkService, string> = {
+  youtube: ASSETS.youtube.src,
+  spotify: ASSETS.spotify.src,
+  google: ASSETS.google.src,
+  apple: ASSETS.apple.src,
+};
 
 /** Absolute URL for the same asset, which email needs. */
 export function serviceIconUrl(service: LinkService, siteUrl: string): string {

@@ -5,6 +5,7 @@ import { Button, Card, EmptyState, Input, Label, Notice, Select } from "@/compon
 import { PixelDot, PixelRule } from "@/components/pixel";
 import { CityTypeahead } from "@/components/city-typeahead";
 import { ServiceLink } from "@/components/service-icon";
+import { AddToCalendar } from "@/components/add-to-calendar";
 import {
   AnonymousSubscribe,
   type SubscribeCity,
@@ -309,10 +310,26 @@ export function ExploreClient({
                   <Card className="p-4">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
-                        <p className="font-mono text-xs text-accent">
-                          {event.dateLabel}
-                          {event.timeLabel ? ` · ${event.timeLabel}` : ""}
-                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-mono text-xs text-accent">
+                            {event.dateLabel}
+                            {event.timeLabel ? ` · ${event.timeLabel}` : ""}
+                          </p>
+                          {/* Beside the date rather than at the bottom of the card:
+                              the moment somebody decides they can make a date is the
+                              moment they want it in their calendar. */}
+                          <AddToCalendar
+                            event={{
+                              title: event.name,
+                              localDate: event.localDate,
+                              localTime: event.localTime,
+                              timezone: event.timezone,
+                              venueName: event.venueName,
+                              cityLabel: event.cityLabel,
+                              url: event.url,
+                            }}
+                          />
+                        </div>
                         <h2 className="mt-1.5 text-base font-semibold tracking-tight">
                           {event.url ? (
                             <a

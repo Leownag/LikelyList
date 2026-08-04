@@ -224,10 +224,12 @@ export async function POST(request: NextRequest) {
             : "Date TBA",
           timeLabel: formatEventTime(event.dates?.start?.localTime ?? null),
           localDate: event.dates?.start?.localDate ?? "",
+          localTime: event.dates?.start?.localTime ?? null,
           venueName: venue?.name ?? null,
           cityLabel: venue?.city?.name ?? placeLabel ?? "",
           imageUrl: pickImage(event.images, { maxWidth: 320, ratio: "16_9" }),
           genreName: genreId ? (nameByTmId.get(genreId) ?? null) : null,
+          timezone: event.dates?.timezone ?? null,
           performers: resolveLineup(event).map(({ attraction, isHeadliner }) => ({
             name: attraction.name,
             isHeadliner,

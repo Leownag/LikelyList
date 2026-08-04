@@ -26,10 +26,19 @@ export type ExploreEvent = {
   dateLabel: string;
   timeLabel: string | null;
   localDate: string;
+  /** Raw venue-local `HH:MM:SS`. timeLabel is for display; this is for arithmetic. */
+  localTime: string | null;
   venueName: string | null;
   cityLabel: string;
   imageUrl: string | null;
   genreName: string | null;
+  /**
+   * The venue's IANA zone, straight from Ticketmaster.
+   *
+   * Needed only by "add to calendar", and needed absolutely: without it an 8pm Boston
+   * show lands in a Los Angeles calendar at 8pm Pacific, three hours wrong.
+   */
+  timezone: string | null;
   performers: ExplorePerformer[];
 };
 
