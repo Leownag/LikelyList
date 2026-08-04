@@ -122,11 +122,45 @@ for 72 hours. Until a domain is verified you can only send to your own address.
 
 ### 4. Database
 
-Run the files in `supabase/migrations/` in order, in the Supabase SQL editor:
+Paste the files in `supabase/migrations/` into the Supabase **SQL Editor** and run
+them one at a time, in order:
 
 1. `0001_init.sql` — tables, RLS policies, the `auth.users` → `profiles` trigger
 2. `0002_storage.sql` — the private `feeds` bucket and its ownership policies
 3. `0003_queue.sql` — atomic queue claiming, lease recovery, cache purging
+4. `0004_function_grants.sql` — **revokes the SECURITY DEFINER functions from
+   `anon` / `authenticated`.** Not optional: without it any signed-in user can
+   call them over PostgREST RPC and suppress everyone's digest or exhaust another
+   user's quota.
+
+Run them separately rather than as one paste, so a failure names the file that
+failed. They are one-shot scripts — `create table` / `create policy` without
+`if not exists` — so re-running one errors with "already exists". That is
+expected, not a problem.
+
+The Supabase CLI is not used here. `supabase db push` expects
+`<timestamp>_name.sql` filenames and a linked project, and `supabase start` needs
+Docker for a local Postgres — none of which buys anything for four scripts run
+once against a single environment. Rename the files to the timestamp convention
+if you ever want CLI-managed migrations.
+
+Afterwards, confirm the two things that are easy to get wrong:
+
+```sql
+-- Every table below must show rowsecurity = true.
+select relname, relrowsecurity as rowsecurity
+from pg_class
+where relnamespace = 'public'::regnamespace and relkind = 'r'
+order by relname;
+
+-- Only bump_usage may be executable by `authenticated`; every other row must be false.
+select p.proname,
+       p.prosecdef as security_definer,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_can_execute
+from pg_proc p
+where p.pronamespace = 'public'::regnamespace
+order by p.proname;
+```
 
 Then seed the reference data:
 

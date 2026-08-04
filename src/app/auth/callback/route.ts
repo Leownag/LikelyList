@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const next = safeNext(url.searchParams.get("next"));
+  const next = safeNext(url.searchParams.get("next"), url.origin);
 
   if (!code) {
     const error = url.searchParams.get("error_description") ?? "missing_code";
@@ -33,14 +33,30 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Only same-site relative paths are honoured.
+ * Only same-origin paths are honoured.
  *
  * `next` arrives in a URL, so treating it as a trusted redirect target would be
- * an open redirect: an attacker could send someone a real Supabase login link
- * that bounces them to a look-alike site after signing in.
+ * an open redirect: an attacker could send someone a genuine Supabase login link
+ * that bounces them to a look-alike site *after* they successfully sign in,
+ * which is the most convincing phishing setup there is.
+ *
+ * Checking the string ("starts with / but not //") is not enough. The WHATWG URL
+ * parser treats a backslash as a path separator in special schemes, so `/\evil.com`
+ * passes that test and then resolves to `https://evil.com/`. Rather than
+ * blacklisting characters, this resolves the candidate and requires the result to
+ * land on the same origin — which is the property we actually care about.
  */
-function safeNext(value: string | null): string {
-  if (!value) return "/app";
-  if (!value.startsWith("/") || value.startsWith("//")) return "/app";
-  return value;
+export function safeNext(value: string | null, origin: string): string {
+  const fallback = "/app";
+  if (!value || !value.startsWith("/")) return fallback;
+
+  let resolved: URL;
+  try {
+    resolved = new URL(value, origin);
+  } catch {
+    return fallback;
+  }
+
+  if (resolved.origin !== origin) return fallback;
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`;
 }

@@ -42,6 +42,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Rejected on the declared length before the body is read. `request.json()`
+  // buffers and decodes the whole payload, so checking the size only afterwards
+  // means an oversized request has already consumed the memory and CPU it was
+  // meant to be refused for. Base64 inflates by ~4/3, plus JSON overhead.
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_IMAGE_BYTES * 1.4) {
+    return NextResponse.json(
+      { error: "That image is too large to process. Try a smaller screenshot." },
+      { status: 413 },
+    );
+  }
+
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await request.json());
@@ -52,6 +64,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Checked again on the decoded payload: content-length is client-supplied and
+  // may be absent on a chunked request.
   const bytes = estimateDataUrlBytes(body.dataUrl);
   if (bytes === 0 || bytes > MAX_IMAGE_BYTES) {
     return NextResponse.json(

@@ -24,10 +24,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const presented =
-    request.headers.get("x-cron-secret") ??
-    request.nextUrl.searchParams.get("secret") ??
-    "";
+  // Header only. A `?secret=` fallback is convenient and a bad idea: query
+  // strings end up in Cloudflare's request logs and observability traces, in
+  // proxy logs, and in anything that records a full URL. A header does not.
+  const presented = request.headers.get("x-cron-secret") ?? "";
 
   if (!timingSafeEqual(presented, env.cronSecret)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
