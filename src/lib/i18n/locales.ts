@@ -1,29 +1,36 @@
 /**
  * Supported locales.
  *
- * `zh-Hant` rather than `zh-TW`: the distinction that matters here is the script,
- * not the region, and matching on script means a `zh-HK` or `zh-MO` reader also
- * gets Traditional characters instead of falling back to English.
+ * Two, deliberately. Spanish and French were carried for the four email-landing pages
+ * and nowhere else, and a language that covers 21 strings out of the app's several
+ * hundred is worse than no offer at all — it promises a translated product and delivers
+ * one screen of it. English and Traditional Chinese are the two this is maintained in.
+ *
+ * `zh-Hant` rather than `zh-TW`: the distinction that matters here is the script, not
+ * the region, and matching on script means a `zh-HK` or `zh-MO` reader also gets
+ * Traditional characters instead of falling back to English.
  */
-export const LOCALES = ["en", "es", "fr", "zh-Hant"] as const;
+export const LOCALES = ["en", "zh-Hant"] as const;
 
 export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = "en";
 
-/** Shown in a language switcher, each in its own language. */
+/** Shown in the language switcher, each in its own language. */
 export const LOCALE_LABELS: Record<Locale, string> = {
   en: "English",
-  es: "Español",
-  fr: "Français",
   "zh-Hant": "繁體中文",
+};
+
+/** Short form, for a switcher that has to fit in a header. */
+export const LOCALE_SHORT: Record<Locale, string> = {
+  en: "EN",
+  "zh-Hant": "中文",
 };
 
 /** The `lang` attribute value to put on `<html>`. */
 export const LOCALE_HTML_LANG: Record<Locale, string> = {
   en: "en",
-  es: "es",
-  fr: "fr",
   "zh-Hant": "zh-Hant",
 };
 
@@ -34,17 +41,15 @@ export function isLocale(value: string | null | undefined): value is Locale {
 /**
  * Picks the best locale from an `Accept-Language` header.
  *
- * Parsed by hand rather than with `Intl.LocaleMatcher` (not available) or a
- * library: the header is a short, well-specified list and the matching rules we
- * need are narrow.
+ * Parsed by hand rather than with `Intl.LocaleMatcher` (not available) or a library: the
+ * header is a short, well-specified list and the matching rules we need are narrow.
  *
  * Matching is deliberately layered:
  *   1. an exact tag             — `zh-Hant`
  *   2. the script subtag        — `zh-Hant-HK` and `zh-HK` both mean Traditional
- *   3. the base language        — `es-MX` -> `es`
- * `zh` on its own is left to fall through to English rather than guessed, because
- * bare `zh` is ambiguous between scripts and guessing wrong is worse than not
- * translating.
+ *   3. the base language        — `en-GB` -> `en`
+ * `zh` on its own is left to fall through to English rather than guessed, because bare
+ * `zh` is ambiguous between scripts and guessing wrong is worse than not translating.
  */
 export function localeFromAcceptLanguage(header: string | null): Locale {
   if (!header) return DEFAULT_LOCALE;
@@ -79,10 +84,7 @@ export function localeFromAcceptLanguage(header: string | null): Locale {
       return "zh-Hant";
     }
 
-    const base = lower.split("-")[0];
-    if (base === "es") return "es";
-    if (base === "fr") return "fr";
-    if (base === "en") return "en";
+    if (lower.split("-")[0] === "en") return "en";
   }
 
   return DEFAULT_LOCALE;

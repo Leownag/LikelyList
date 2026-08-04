@@ -1,6 +1,8 @@
 import {
   DEFAULT_LOCALE,
+  LOCALES,
   LOCALE_HTML_LANG,
+  LOCALE_LABELS,
   isLocale,
   localeFromAcceptLanguage,
   type Locale,
@@ -44,6 +46,66 @@ export function i18nFromRequest(request: Parameters<typeof localeFromRequest>[0]
     htmlLang: LOCALE_HTML_LANG[locale] ?? LOCALE_HTML_LANG[DEFAULT_LOCALE],
     t: translator(locale),
   };
+}
+
+export type LanguageChoice = {
+  locale: Locale;
+  /** The language's name in that language, e.g. 繁體中文. */
+  label: string;
+  /** This same page in that language. Relative, so it survives any origin. */
+  href: string;
+  active: boolean;
+};
+
+/**
+ * The `?lang=` switcher, as links.
+ *
+ * Until now the locale could only be chosen by the browser's Accept-Language header,
+ * which means a reader whose browser is in English had no way to read these pages in
+ * their own language — the machinery was there and unreachable.
+ *
+ * Links rather than a `<select>` and a cookie: these pages carry no session and no
+ * client JavaScript at all, so a link that reloads with a different query is the whole
+ * feature. It also keeps the choice shareable and back-button-correct.
+ *
+ * Every other query parameter is preserved, which matters because the only way to reach
+ * these pages is with a `?t=` token — dropping it would turn the switcher into a way to
+ * break your own unsubscribe link.
+ */
+export function languageChoices(
+  request: Parameters<typeof localeFromRequest>[0],
+  current: Locale,
+): LanguageChoice[] {
+  const url = requestUrl(request);
+
+  return LOCALES.map((locale) => {
+    const target = new URL(url);
+    target.searchParams.set("lang", locale);
+    return {
+      locale,
+      label: LOCALE_LABELS[locale],
+      href: `${target.pathname}${target.search}`,
+      active: locale === current,
+    };
+  });
+}
+
+function requestUrl(request: Parameters<typeof localeFromRequest>[0]): URL {
+  if (request.url) {
+    try {
+      return new URL(request.url);
+    } catch {
+      // Falls through to the placeholder below.
+    }
+  }
+  // Origin is irrelevant — only pathname and search are read back out.
+  const url = new URL("http://localhost/");
+  if (request.nextUrl) {
+    for (const [key, value] of request.nextUrl.searchParams) {
+      url.searchParams.set(key, value);
+    }
+  }
+  return url;
 }
 
 function readLangParam(
