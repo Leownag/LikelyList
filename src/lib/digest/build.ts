@@ -59,6 +59,15 @@ export async function buildDigest(
 
   if (!profile) return null;
 
+  // The recipient comes from auth.users, not from profiles.email.
+  //
+  // Migration 0005 revokes the user's ability to write profiles.email, so the two
+  // should agree — but the address that decides where mail is sent should be read
+  // from the identity provider that verified it, so that loosening an RLS policy
+  // later can never turn this service into a relay for unsolicited mail.
+  const recipient = await resolveRecipient(supabase, userId, profile.email);
+  if (!recipient) return null;
+
   const [subsResult, genrePrefsResult, artistPrefsResult, citiesResult, genresResult] =
     await Promise.all([
       supabase.from("subscriptions").select("city_id").eq("user_id", userId),
@@ -78,7 +87,9 @@ export async function buildDigest(
   const cityIds = ((subsResult.data ?? []) as { city_id: number }[]).map(
     (row) => row.city_id,
   );
-  if (cityIds.length === 0) return emptyDigest(profile, env, options, []);
+  if (cityIds.length === 0) {
+    return emptyDigest({ ...profile, email: recipient }, env, options, []);
+  }
 
   const cityById = new Map(
     ((citiesResult.data ?? []) as Pick<City, "id" | "name" | "state_code">[]).map(
@@ -123,7 +134,7 @@ export async function buildDigest(
   if (weightByTmGenre.size === 0 && artistScores.size === 0) {
     // Nothing to filter by. Sending every show in the city would be noise, not
     // a digest.
-    return emptyDigest(profile, env, options, cityNames);
+    return emptyDigest({ ...profile, email: recipient }, env, options, cityNames);
   }
 
   const { data: eventRows } = await supabase
@@ -211,7 +222,7 @@ export async function buildDigest(
 
   return {
     userId,
-    email: profile.email,
+    email: recipient,
     timezone: profile.timezone,
     windowLabel: windowLabel(options.startDate, options.endDate),
     events: scored,
@@ -294,6 +305,28 @@ async function enrichPerformers(
     performer.youtubeUrl = links.youtubeUrl;
     performer.youtubeThumbnailUrl = links.youtubeThumbnailUrl;
   }
+}
+
+/**
+ * The address Supabase Auth holds for this account.
+ *
+ * Falls back to profiles.email only if the admin lookup fails outright, so a
+ * transient auth-API problem degrades to the previous behaviour rather than
+ * dropping someone's digest. Returns null when neither is usable, which the
+ * caller turns into a skipped job rather than a send to nowhere.
+ */
+async function resolveRecipient(
+  supabase: AdminClient,
+  userId: string,
+  profileEmail: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (!error && data.user?.email) return data.user.email;
+  } catch {
+    // Fall through to the profile copy.
+  }
+  return profileEmail || null;
 }
 
 async function emptyDigest(

@@ -161,16 +161,19 @@ export async function planWeeklyDigest(
   }
 
   // Enqueue one job per subscriber, with the instant their local morning starts.
+  //
+  // Guarded per subscriber rather than around the whole loop: Intl throws a
+  // RangeError on an unrecognised timezone, and this pass covers the entire
+  // audience — so an unguarded map meant one bad row could abort the run and
+  // nobody would receive an email that week. Migration 0005 constrains the
+  // column as well; this is the second layer, because no single row should ever
+  // be able to take out everyone else.
   let jobsQueued = 0;
   const jobs = subscribers.map((subscriber) => ({
     run_id: runId,
     user_id: subscriber.id,
     status: "queued" as const,
-    send_after: sendInstantFor(
-      now,
-      subscriber.timezone,
-      subscriber.digest_send_hour,
-    ).toISOString(),
+    send_after: safeSendInstant(now, subscriber, warnings),
   }));
 
   for (let i = 0; i < jobs.length; i += 200) {
@@ -208,6 +211,44 @@ export async function planWeeklyDigest(
     .eq("id", runId);
 
   return result;
+}
+
+/**
+ * This subscriber's send instant, or a UTC-based one if their timezone is
+ * unusable.
+ *
+ * Exported for testing: the failure it prevents is invisible until a Friday.
+ */
+export function safeSendInstant(
+  now: Date,
+  subscriber: { id: string; timezone: string; digest_send_hour: number },
+  warnings: string[],
+): string {
+  try {
+    const instant = sendInstantFor(
+      now,
+      subscriber.timezone,
+      subscriber.digest_send_hour,
+    );
+    // An Invalid Date also throws on toISOString, so this stays inside the try.
+    return instant.toISOString();
+  } catch {
+    warnings.push(
+      `${subscriber.id}: unusable timezone ${JSON.stringify(
+        subscriber.timezone,
+      )}, scheduled against UTC instead`,
+    );
+    return sendInstantFor(
+      now,
+      "UTC",
+      clampHour(subscriber.digest_send_hour),
+    ).toISOString();
+  }
+}
+
+/** The column has a CHECK, but the fallback path must not be able to throw. */
+function clampHour(hour: number): number {
+  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 8;
 }
 
 /**
