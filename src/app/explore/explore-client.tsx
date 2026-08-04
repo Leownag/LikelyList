@@ -78,8 +78,6 @@ export function ExploreClient({
       : null;
 
   const place: PlacePoint | null = chosenPlace ?? detectedPoint;
-  // Still needed for the subscribe box, which subscribes by curated city.
-  const citySlug = detectedCity?.slug ?? "";
 
   async function search(overrideRadius?: number) {
     const radius = overrideRadius ?? radiusMiles;
@@ -285,20 +283,31 @@ export function ExploreClient({
 
           {showSubscribe ? (
             <div className="mt-5">
+              {/* This exact search, and no second set of controls — see
+                  SubscribePreset for why re-asking was worse than not asking. */}
               <AnonymousSubscribe
                 cities={cities}
                 genres={genres}
-                // Carries this exact search into the subscription, so the button
-                // does what it says.
-                presetCitySlug={mode === "city" ? citySlug : undefined}
-                presetGenreIds={[...genreIds]}
+                preset={{
+                  label:
+                    result.placeLabel ??
+                    [place?.name, place?.stateCode].filter(Boolean).join(", "),
+                  // A town chosen from the typeahead subscribes by GEOID; the detected
+                  // metro nobody touched is a curated city, and keeping its slug is
+                  // what keeps it visible in the city grid later.
+                  citySlug:
+                    mode === "city" && !chosenPlace ? (detectedCity?.slug ?? null) : null,
+                  placeGeoid: mode === "city" ? (chosenPlace?.geoid ?? null) : null,
+                  postalCode: mode === "zip" ? postalCode.trim() : null,
+                  // No genre filter means the reader was shown everything, so that is
+                  // what "email me this" has to subscribe to. The digest sends nothing
+                  // to someone who follows no genre at all.
+                  genreIds:
+                    genreIds.size > 0
+                      ? [...genreIds]
+                      : genres.map((genre) => genre.id),
+                }}
               />
-              {mode === "zip" ? (
-                <p className="mt-2 text-xs text-faint">
-                  The weekly email works by city rather than ZIP, so pick the closest
-                  one above.
-                </p>
-              ) : null}
             </div>
           ) : null}
 

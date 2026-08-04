@@ -25,6 +25,12 @@ export type StandalonePage = {
    */
   htmlLang?: string;
   privacyLabel?: string;
+  /**
+   * The language switcher, already built by the caller (see languageChoices).
+   *
+   * Omitted on the operator page, which has one audience and no reason to translate.
+   */
+  languages?: { locale: string; label: string; href: string; active: boolean }[];
 };
 
 export function standalonePage({
@@ -36,6 +42,7 @@ export function standalonePage({
   siteUrl = "",
   htmlLang = "en",
   privacyLabel = "Privacy",
+  languages,
 }: StandalonePage): string {
   return `<!doctype html>
 <html lang="${escapeHtml(htmlLang)}">
@@ -70,6 +77,15 @@ export function standalonePage({
   }
   .btn:hover { background: #ffffff; }
   a.quiet { color: #a1a1aa; font-size: 13px; }
+  .langs { display: flex; flex-wrap: wrap; gap: 6px; margin: 28px 0 0; }
+  .langs a, .langs span {
+    display: inline-block; padding: 5px 10px; font-size: 12px;
+    border: 1px solid #262626; color: #a1a1aa; text-decoration: none;
+    background: #0a0a0a;
+  }
+  .langs a:hover { border-color: #e4ff3f; color: #fafafa; }
+  /* The current language is a label, not a link to where you already are. */
+  .langs span { border-color: #e4ff3f; color: #fafafa; }
 </style>
 </head>
 <body>
@@ -89,6 +105,23 @@ export function standalonePage({
         : ""
     }
     <p><a class="quiet" href="${escapeHtml(siteUrl)}/privacy">${escapeHtml(privacyLabel)}</a></p>
+    ${
+      languages && languages.length > 1
+        ? `<nav class="langs" aria-label="Language">${languages
+            .map((language) =>
+              language.active
+                ? `<span aria-current="true" lang="${escapeHtml(
+                    language.locale,
+                  )}">${escapeHtml(language.label)}</span>`
+                : `<a href="${escapeHtml(language.href)}" lang="${escapeHtml(
+                    language.locale,
+                  )}" hreflang="${escapeHtml(language.locale)}">${escapeHtml(
+                    language.label,
+                  )}</a>`,
+            )
+            .join("")}</nav>`
+        : ""
+    }
   </main>
 </body>
 </html>`;

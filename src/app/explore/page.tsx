@@ -7,15 +7,20 @@ import { readEnv } from "@/lib/env";
 import type { City, Genre } from "@/lib/db";
 import { ExploreClient } from "./explore-client";
 import type { SubscribeCity, SubscribeGenre } from "@/components/anonymous-subscribe";
+import type { Metadata } from "next";
 
 /** Same reason as the landing page: the city and genre lists come from the
  *  database, so prerendering would freeze them at build time. */
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "Explore this week — likelylist",
+export const metadata: Metadata = {
+  title: "Explore this week",
   description:
-    "Browse the coming week's shows by city or ZIP code, filtered by genre. No account needed.",
+    "See which concerts are on this week near any US city or ZIP code, filtered by genre. " +
+    "No account, no email needed.",
+  // The results live in client state, so every search renders at this one URL. Saying so
+  // explicitly keeps any future `?city=` variant from splitting the page's signals.
+  alternates: { canonical: "/explore" },
 };
 
 export default async function ExplorePage() {

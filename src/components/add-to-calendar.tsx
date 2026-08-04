@@ -7,7 +7,8 @@ import {
   icsFileName,
   type CalendarEvent,
 } from "@/lib/calendar";
-import { ASSET_SRC, serviceLabel } from "@/components/service-icon";
+import { ServiceIconImg } from "@/components/service-icon-img";
+import { useT } from "@/lib/i18n/client";
 
 /**
  * Add to calendar, self-hosted.
@@ -28,6 +29,7 @@ export function AddToCalendar({
   event: CalendarEvent;
   className?: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
@@ -102,7 +104,7 @@ export function AddToCalendar({
           <rect x="0.6" y="1.6" width="10.8" height="9.8" />
           <path d="M0.6 4.4h10.8M3.4 1.6V0.6M8.6 1.6V0.6" />
         </svg>
-        Add to calendar
+        {t("calendar.add")}
       </button>
 
       {open ? (
@@ -119,8 +121,8 @@ export function AddToCalendar({
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 px-3 py-2 text-sm text-text hover:bg-surface"
             >
-              <BrandGlyph service="google" />
-              {serviceLabel("google")}
+              <ServiceIconImg service="google" />
+              {t("calendar.google")}
             </a>
           </li>
           <li role="none">
@@ -130,12 +132,12 @@ export function AddToCalendar({
               onClick={downloadIcs}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-surface"
             >
-              <BrandGlyph service="apple" />
-              {serviceLabel("apple")}
+              <ServiceIconImg service="apple" />
+              {t("calendar.apple")}
             </button>
           </li>
           <li className="border-t border-border px-3 py-2 text-xs text-faint">
-            Apple downloads a .ics file, which also works in Outlook and Fantastical.
+            {t("calendar.icsNote")}
           </li>
         </ul>
       ) : null}
@@ -143,27 +145,3 @@ export function AddToCalendar({
   );
 }
 
-/**
- * The official mark, or nothing.
- *
- * Same degradation as ServiceLink: until the asset is in public/brand/ this renders
- * nothing rather than a broken image, and the text label beside it carries the meaning
- * on its own. Deliberately not a redrawn logo — both companies forbid that.
- */
-function BrandGlyph({ service }: { service: "google" | "apple" }) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={ASSET_SRC[service]}
-      alt=""
-      aria-hidden="true"
-      width={14}
-      height={14}
-      className="shrink-0"
-      style={{ objectFit: "contain" }}
-      onError={(event) => {
-        event.currentTarget.style.display = "none";
-      }}
-    />
-  );
-}

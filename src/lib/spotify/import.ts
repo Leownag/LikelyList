@@ -238,10 +238,25 @@ async function retireDroppedArtists(
   // library — so nothing is retired in that case.
   if (keep.length === 0) return;
 
+  // The filter below is a string, so a name containing `)` or `,` would change what it
+  // means rather than fail to parse — and this statement deletes rows. Every value here
+  // has been through normalizeName, which leaves only lowercase alphanumerics and
+  // single spaces, so that cannot currently happen; asserting it here means a future
+  // relaxation of normalizeName (to keep accents, say) stops the retire instead of
+  // silently deleting the wrong follows. Skipping a retire costs a stale artist.
+  const unsafe = keep.filter((name) => /[^a-z0-9 ]/.test(name));
+  if (unsafe.length > 0) {
+    console.error(
+      "[SPOTIFY_RETIRE] refusing to retire: unexpected characters in",
+      unsafe.slice(0, 3),
+    );
+    return;
+  }
+
   const { error } = await query.not(
     "normalized_name",
     "in",
-    `(${keep.map((name) => `"${name.replace(/"/g, '""')}"`).join(",")})`,
+    `(${keep.map((name) => `"${name}"`).join(",")})`,
   );
 
   if (error) {

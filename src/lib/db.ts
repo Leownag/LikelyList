@@ -170,6 +170,13 @@ export type CachedEvent = {
   url: string | null;
   local_date: string | null;
   local_time: string | null;
+  /**
+   * The venue's IANA zone, so a cached event can become a calendar entry.
+   *
+   * `local_time` alone is a wall clock with no anchor; resolving it needs this. Null
+   * when Ticketmaster supplies neither an event nor a venue zone.
+   */
+  timezone: string | null;
   venue_name: string | null;
   venue_city: string | null;
   venue_state: string | null;

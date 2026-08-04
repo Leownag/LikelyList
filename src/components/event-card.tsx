@@ -5,6 +5,8 @@ import { AddToCalendar } from "@/components/add-to-calendar";
 import { PinButton } from "@/components/pin-button";
 import { spotifySearchUrl, youtubeSearchUrl } from "@/lib/enrich/links";
 import type { PinInput } from "@/lib/pins/types";
+import { getI18n } from "@/lib/i18n/server";
+import type { Locale } from "@/lib/i18n/locales";
 
 /**
  * One show, as My feed and Pinned both render it.
@@ -18,7 +20,7 @@ import type { PinInput } from "@/lib/pins/types";
  * A search URL cannot rot, and storing one per performer per pin would be copying
  * something we can always recompute.
  */
-export function EventCard({
+export async function EventCard({
   event,
   pinned,
   signedIn,
@@ -30,8 +32,9 @@ export function EventCard({
   signedIn: boolean;
   becauseOf?: string[];
 }) {
-  const dateLabel = formatDate(event.localDate);
-  const timeLabel = formatTime(event.localTime);
+  const { locale, t } = await getI18n();
+  const dateLabel = formatDate(event.localDate, t("card.dateTba"), locale);
+  const timeLabel = formatTime(event.localTime, locale);
   const place = [event.venueName, event.cityLabel].filter(Boolean).join(" · ");
 
   return (
@@ -125,12 +128,12 @@ export function EventCard({
  * reasoning as formatEventDate in lib/time, duplicated here only because this component
  * receives a nullable date.
  */
-function formatDate(localDate: string | null): string {
-  if (!localDate) return "Date TBA";
+function formatDate(localDate: string | null, dateTba: string, locale: Locale): string {
+  if (!localDate) return dateTba;
   const [year, month, day] = localDate.split("-").map(Number);
-  if (!year || !month || !day) return "Date TBA";
+  if (!year || !month || !day) return dateTba;
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: "UTC",
     weekday: "short",
     month: "short",
@@ -138,12 +141,12 @@ function formatDate(localDate: string | null): string {
   }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
-function formatTime(localTime: string | null): string | null {
+function formatTime(localTime: string | null, locale: Locale): string | null {
   if (!localTime) return null;
   const [hour, minute] = localTime.split(":").map(Number);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: "UTC",
     hour: "numeric",
     minute: "2-digit",

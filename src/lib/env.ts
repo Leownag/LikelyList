@@ -83,7 +83,9 @@ export function readEnv(raw: RawEnv = process.env as RawEnv): AppEnv {
     // shows in its list view. The lowercase wordmark is a typographic treatment that
     // belongs on a page it can be styled on; rendered as plain text next to real
     // senders it just looks like a mistake.
-    emailFrom: optional(raw, "EMAIL_FROM", "LikelyList <onboarding@resend.dev>"),
+    // No fallback sender. A default here would send from somebody else's domain
+    // and look like it worked, which is worse than the send failing loudly.
+    emailFrom: optional(raw, "EMAIL_FROM"),
     emailUnsubscribeMailto: optional(raw, "EMAIL_UNSUBSCRIBE_MAILTO"),
     siteUrl: optional(raw, "NEXT_PUBLIC_SITE_URL", "http://localhost:3000"),
     cronSecret: optional(raw, "CRON_SECRET"),

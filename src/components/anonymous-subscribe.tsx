@@ -24,6 +24,27 @@ export type SubscribeCity = {
 export type SubscribeGenre = { id: number; name: string };
 
 /**
+ * A search that has already happened, to subscribe to as-is.
+ *
+ * Set by /explore, where the reader has just picked a place and genres and pressed
+ * "Email me this every Friday". With this present the box asks for the address and
+ * nothing else: re-offering a city dropdown there was not a second chance to choose, it
+ * was a different question — the dropdown holds 43 curated metros and the search above
+ * can be any of 32,329 towns or a ZIP, so it silently answered "Amherst" with "Boston".
+ *
+ * `placeGeoid` and `postalCode` are names rather than coordinates; the server resolves
+ * them (see resolvePlace).
+ */
+export type SubscribePreset = {
+  /** "Amherst, MA" — what the search above was centred on, for the confirmation line. */
+  label: string;
+  citySlug?: string | null;
+  placeGeoid?: string | null;
+  postalCode?: string | null;
+  genreIds: number[];
+};
+
+/**
  * Subscribe without creating an account.
  *
  * The region is guessed from the browser's timezone rather than an IP lookup — no
@@ -39,18 +60,16 @@ export type SubscribeGenre = { id: number; name: string };
 export function AnonymousSubscribe({
   cities,
   genres,
-  presetCitySlug,
-  presetGenreIds,
+  preset,
 }: {
   cities: SubscribeCity[];
   genres: SubscribeGenre[];
-  /** Set when arriving from /explore, so the current search carries over. */
-  presetCitySlug?: string;
-  presetGenreIds?: number[];
+  /** A search to subscribe to verbatim. When set, this box only asks for the address. */
+  preset?: SubscribePreset;
 }) {
   const [email, setEmail] = useState("");
   const [genreIds, setGenreIds] = useState<Set<number>>(
-    () => new Set(presetGenreIds ?? []),
+    () => new Set(preset?.genreIds ?? []),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,11 +87,11 @@ export function AnonymousSubscribe({
   const detectedIsUsable = cities.some((city) => city.slug === detectedCitySlug);
   const citySlug =
     chosenCitySlug ??
-    presetCitySlug ??
+    preset?.citySlug ??
     (detectedIsUsable ? detectedCitySlug : cities[0]?.slug) ??
     "";
   const showingDetected =
-    chosenCitySlug === null && !presetCitySlug && detectedIsUsable;
+    chosenCitySlug === null && !preset && detectedIsUsable;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -93,7 +112,9 @@ export function AnonymousSubscribe({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
-          citySlug,
+          citySlug: preset ? (preset.citySlug ?? null) : citySlug,
+          placeGeoid: preset?.placeGeoid ?? null,
+          postalCode: preset?.postalCode ?? null,
           genreIds: [...genreIds],
           timezone,
         }),
@@ -156,29 +177,37 @@ export function AnonymousSubscribe({
         </Button>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-        <span>Shows near</span>
-        <Select
-          value={citySlug}
-          onChange={(event) => setChosenCitySlug(event.target.value)}
-          aria-label="City"
-          className="w-auto border-border-strong/60 bg-bg/40 py-1 text-xs"
-        >
-          {cities.map((city) => (
-            <option key={city.slug} value={city.slug}>
-              {city.name}
-              {city.stateCode ? `, ${city.stateCode}` : ""}
-            </option>
-          ))}
-        </Select>
-        {showingDetected ? (
-          <span className="text-faint">
-            detected from your timezone — change it if it&apos;s wrong
-          </span>
-        ) : null}
-      </div>
+      {preset ? (
+        <p className="mt-3 text-xs text-muted">
+          Shows near <span className="text-text">{preset.label}</span> ·{" "}
+          <span className="text-text">{summariseGenres(genres, preset.genreIds)}</span>
+          <span className="text-faint"> — the search you just ran</span>
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span>Shows near</span>
+          <Select
+            value={citySlug}
+            onChange={(event) => setChosenCitySlug(event.target.value)}
+            aria-label="City"
+            className="w-auto border-border-strong/60 bg-bg/40 py-1 text-xs"
+          >
+            {cities.map((city) => (
+              <option key={city.slug} value={city.slug}>
+                {city.name}
+                {city.stateCode ? `, ${city.stateCode}` : ""}
+              </option>
+            ))}
+          </Select>
+          {showingDetected ? (
+            <span className="text-faint">
+              detected from your timezone — change it if it&apos;s wrong
+            </span>
+          ) : null}
+        </div>
+      )}
 
-      {topGenres.length > 0 ? (
+      {!preset && topGenres.length > 0 ? (
         <div className="mt-4">
           <p className="text-xs text-faint">
             Pick at least one — this is what the email filters on:
@@ -222,7 +251,20 @@ export function AnonymousSubscribe({
       <p className="mt-4 text-xs text-faint">
         We send one confirmation email and nothing else until you click it. One
         email a week after that, unsubscribe in one click.
+        {preset ? " You can change all of this once you're in." : ""}
       </p>
     </form>
   );
+}
+
+/** "Rock, Pop and 2 more", or "every genre" when nothing was filtered out. */
+export function summariseGenres(genres: SubscribeGenre[], chosen: number[]): string {
+  if (genres.length > 0 && chosen.length >= genres.length) return "every genre";
+
+  const names = genres
+    .filter((genre) => chosen.includes(genre.id))
+    .map((genre) => genre.name);
+  if (names.length === 0) return "every genre";
+  if (names.length <= 3) return names.join(", ");
+  return `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
 }

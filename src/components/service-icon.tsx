@@ -27,6 +27,8 @@
  * nothing beside it becomes an unexplained gap.
  */
 
+import { ServiceIconImg } from "@/components/service-icon-img";
+
 export type LinkService = "youtube" | "spotify" | "google" | "apple";
 
 const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> = {
@@ -66,8 +68,9 @@ const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> =
 /**
  * Web version. Renders the icon beside its name, both inside one link.
  *
- * `onError` hides a missing asset rather than leaving a broken-image glyph, so the
- * link still reads correctly before the brand files are added.
+ * Server-renderable, which it has to be — /app/feed and /app/pinned are server
+ * components. The mark itself hides on load failure and that needs a handler, so it
+ * lives in its own client component (see ServiceIconImg).
  */
 export function ServiceLink({
   service,
@@ -87,20 +90,7 @@ export function ServiceLink({
       target="_blank"
       className={`inline-flex items-center gap-1.5 text-muted underline decoration-border-strong hover:text-text ${className}`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={asset.src}
-        alt=""
-        aria-hidden="true"
-        width={14}
-        height={14}
-        className="shrink-0"
-        // Kept square and unscaled; the guidelines forbid distorting the mark.
-        style={{ objectFit: "contain" }}
-        onError={(event) => {
-          event.currentTarget.style.display = "none";
-        }}
-      />
+      <ServiceIconImg service={service} />
       <span>{asset.label}</span>
     </a>
   );

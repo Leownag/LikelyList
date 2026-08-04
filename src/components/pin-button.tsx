@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useT } from "@/lib/i18n/client";
 import { pinEvent, unpinEvent } from "@/app/app/pinned/actions";
 import type { PinInput } from "@/lib/pins/types";
 
@@ -25,6 +26,7 @@ export function PinButton({
   initiallyPinned: boolean;
   signedIn: boolean;
 }) {
+  const t = useT();
   const [pinned, setPinned] = useState(initiallyPinned);
   const [pending, startTransition] = useTransition();
 
@@ -51,7 +53,7 @@ export function PinButton({
       type="button"
       onClick={toggle}
       aria-pressed={pinned}
-      title={pinned ? "Remove from your pinned shows" : "Pin this show"}
+      title={pinned ? t("card.unpin.title") : t("card.pin.title")}
       className={`inline-flex items-center gap-1.5 border px-2.5 py-1 text-xs transition-colors ${
         pending ? "opacity-70" : ""
       } ${
@@ -74,7 +76,7 @@ export function PinButton({
         <path d="M4 0.6h3v3l1.6 2H2.4L4 3.6z" />
         <path d="M5.5 5.6v4.8" />
       </svg>
-      {pinned ? "Pinned" : "Pin"}
+      {pinned ? t("card.pinned") : t("card.pin")}
     </button>
   );
 }
