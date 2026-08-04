@@ -7,6 +7,7 @@ import {
   searchMusicEvents,
   toCachedEvent,
 } from "@/lib/ticketmaster/events";
+import type { TmEvent } from "@/lib/ticketmaster/types";
 import { digestWindow, sendInstantFor } from "@/lib/time";
 import type { City, DigestRun, Profile } from "@/lib/db";
 
@@ -25,6 +26,24 @@ import type { City, DigestRun, Profile } from "@/lib/db";
 
 /** How long a cached event row lives. */
 const CACHE_TTL_HOURS = 36;
+
+/**
+ * How far ahead the "on sale this week" query looks for event dates.
+ *
+ * A show whose tickets drop on Friday is typically months out, so this window has
+ * to be much wider than the digest's own seven days. It is a bound on the request,
+ * not the thing that selects onsales — that is `onsaleOnAfterStartDate`.
+ */
+const ONSALE_EVENT_HORIZON_DAYS = 365;
+
+/**
+ * Pages of onsale results per city.
+ *
+ * One, on purpose, and one is plenty: a real city week returns a handful of
+ * upcoming onsales, because most listed events are already on sale. Paging deeper
+ * would spend quota on events that could never be rendered.
+ */
+const ONSALE_MAX_PAGES = 1;
 
 /** Refresh the genre taxonomy at most this often. */
 const TAXONOMY_MAX_AGE_DAYS = 30;
@@ -128,6 +147,10 @@ export async function planWeeklyDigest(
   const expiresAt = new Date(now.getTime() + CACHE_TTL_HOURS * 60 * 60 * 1000);
   let eventsCached = 0;
 
+  const onsaleHorizon = new Date(
+    now.getTime() + ONSALE_EVENT_HORIZON_DAYS * 24 * 60 * 60 * 1000,
+  );
+
   for (const city of cities) {
     try {
       const events = await searchMusicEvents(client, {
@@ -137,7 +160,27 @@ export async function planWeeklyDigest(
         endDateTime: window.end,
       });
 
-      const rows = events
+      // Second query, same city: what goes on sale from this week onward, whenever
+      // the show itself happens. These land in the same cache table and are told
+      // apart by onsale_start, so an event that is both playing and going on sale
+      // this week is one row either way.
+      //
+      // `onsaleOnAfterStartDate` has no upper bound and the datetime-range
+      // parameters that look like they would provide one are silently ignored (see
+      // EventSearchParams for the measurements). The upper bound is therefore
+      // applied in buildDigest, against the reader's own week.
+      const onsale = await searchMusicEvents(client, {
+        city: city.tm_city,
+        countryCode: city.country_code,
+        // Still bounded, so a city with years of announced inventory cannot drag a
+        // page of 2029 dates into the cache. It is not what selects the onsales.
+        startDateTime: now,
+        endDateTime: onsaleHorizon,
+        onsaleOnAfterStartDate: window.start,
+        maxPages: ONSALE_MAX_PAGES,
+      });
+
+      const rows = dedupeByEventId([...events, ...onsale])
         .filter(isSendableEvent)
         .map((event) => toCachedEvent(event, city.id, expiresAt));
 
@@ -244,6 +287,23 @@ export function safeSendInstant(
       clampHour(subscriber.digest_send_hour),
     ).toISOString();
   }
+}
+
+/**
+ * Collapses the this-week and on-sale-this-week results into one row per event.
+ *
+ * The two queries overlap whenever a show goes on sale days before it happens, and
+ * `events_cache` is keyed on (city_id, tm_event_id) — so without this the upsert
+ * would carry two rows with the same key in a single statement, which Postgres
+ * rejects outright ("ON CONFLICT DO UPDATE command cannot affect row a second
+ * time"). First occurrence wins; both copies carry the same `sales` block.
+ */
+export function dedupeByEventId(events: TmEvent[]): TmEvent[] {
+  const byId = new Map<string, TmEvent>();
+  for (const event of events) {
+    if (!byId.has(event.id)) byId.set(event.id, event);
+  }
+  return [...byId.values()];
 }
 
 /** The column has a CHECK, but the fallback path must not be able to throw. */

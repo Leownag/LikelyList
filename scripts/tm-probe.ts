@@ -58,6 +58,7 @@ async function main() {
 
   await dumpTaxonomy(client);
   await compareLocationFilters(client, window);
+  await compareOnsaleFilters(client, window);
 
   console.log(`\nRequests used: ${client.requestCount()}`);
   console.log("Rate limit:", client.rateLimit(), "\n");
@@ -236,6 +237,79 @@ async function compareLocationFilters(
       ">>> absent or rare here, the genre filter is what reduced the list — not the\n" +
       ">>> location. Events with no primary genre are dropped whenever any genre\n" +
       ">>> filter is active, and that count is shown above.\n",
+  );
+}
+
+/**
+ * Which onsale filter Ticketmaster actually honours.
+ *
+ * Kept because this is exactly the kind of contract that rots silently. The
+ * documented `onsaleStartDateTime` / `onsaleEndDateTime` pair is accepted, returns
+ * 200, and does nothing — the "on sale this week" section was built on it and shipped
+ * empty until this comparison caught it. If the two rows below ever produce the same
+ * counts again, the filter has stopped working and the section is quietly dead.
+ */
+async function compareOnsaleFilters(
+  client: TmClient,
+  window: { start: Date; end: Date; startDate: string; endDate: string },
+) {
+  console.log("=== On-sale filters ===\n");
+
+  const base = {
+    city: CITY,
+    countryCode: "US",
+    segmentId: MUSIC_SEGMENT_ID,
+    sort: "date,asc",
+    size: 100,
+    includeTBA: "no",
+    includeTBD: "no",
+    includeTest: "no",
+  } as const;
+
+  const variants = [
+    { label: "no onsale filter (control)", params: {} },
+    {
+      label: "onsaleStartDateTime + onsaleEndDateTime (documented, ignored)",
+      params: {
+        onsaleStartDateTime: `${window.start.toISOString().split(".")[0]}Z`,
+        onsaleEndDateTime: `${window.end.toISOString().split(".")[0]}Z`,
+      },
+    },
+    {
+      label: "onsaleOnAfterStartDate (date form — the one we use)",
+      params: { onsaleOnAfterStartDate: window.startDate },
+    },
+  ];
+
+  for (const variant of variants) {
+    const response = await client.get<TmEventsResponse>("/events.json", {
+      ...base,
+      ...variant.params,
+    });
+    const events = response._embedded?.events ?? [];
+
+    let inWindow = 0;
+    let sentinel = 0;
+    for (const event of events) {
+      const start = event.sales?.public?.startDateTime;
+      if (!start) continue;
+      if (start.startsWith("1900")) sentinel += 1;
+      const at = new Date(start).getTime();
+      if (at >= window.start.getTime() && at < window.end.getTime()) inWindow += 1;
+    }
+
+    console.log(
+      `  total ${String(response.page?.totalElements ?? 0).padStart(5)}` +
+        `  on sale in window ${String(inWindow).padStart(3)}` +
+        `  1900-sentinel ${String(sentinel).padStart(3)}   ${variant.label}`,
+    );
+  }
+
+  console.log(
+    "\n>>> The control and the datetime-pair rows should match each other, proving\n" +
+      ">>> the documented parameter does nothing. The date-form row should be much\n" +
+      ">>> smaller with every result genuinely inside the window. If it is not, the\n" +
+      ">>> on-sale section is silently empty — see EventSearchParams.\n",
   );
 }
 

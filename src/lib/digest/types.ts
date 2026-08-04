@@ -32,6 +32,28 @@ export type DigestEvent = {
   matchedArtists: string[];
 };
 
+/**
+ * A show whose tickets go on sale during the digest window.
+ *
+ * Intentionally thinner than DigestEvent: no artwork, no performer rows, no
+ * enrichment. This section is a deadline list, and its job is to be scannable and
+ * to cost almost nothing against the email's byte budget.
+ */
+export type DigestOnsale = {
+  tmEventId: string;
+  name: string;
+  url: string | null;
+  /** When the show is, which for these is usually months out. */
+  dateLabel: string;
+  venueName: string | null;
+  cityLabel: string;
+  /** The onsale instant, ISO. Rendered in the subscriber's own timezone. */
+  onsaleStart: string;
+  /** Followed artists on this bill, same signal as DigestEvent. */
+  matchedArtists: string[];
+  score: number;
+};
+
 export type Digest = {
   userId: string;
   email: string;
@@ -42,7 +64,26 @@ export type Digest = {
   events: DigestEvent[];
   /** How many are in `events`, before the email truncates. */
   totalEventCount: number;
+  /**
+   * Ticket drops in this window, ranked by the same genre/artist signal.
+   *
+   * Separate from `events` because it answers a different question. The original
+   * premise — the next seven days of shows — is already too late for anything in
+   * demand: those tickets sold weeks earlier. This is the part a reader can still
+   * act on.
+   */
+  onsale: DigestOnsale[];
   cities: string[];
+  /**
+   * Set when `events` is not the result of the reader's own filters.
+   *
+   * `"no_preferences"` means they have no positive genre weight and no followed
+   * artists, so this is simply everything listed in their cities. The email has to
+   * say so: presenting an unfiltered list as a filtered one would teach the reader
+   * that the filtering does not work, and there is no popularity signal in the
+   * Ticketmaster data that would justify calling it a "top shows" list either.
+   */
+  fallbackReason: "no_preferences" | null;
   previewUrl: string;
   unsubscribeUrl: string;
   unsubscribeMailto: string | null;
@@ -69,3 +110,12 @@ export const MAX_EMAIL_PERFORMERS = 3;
 
 /** How many events get YouTube enrichment. Only what the email will show. */
 export const MAX_ENRICHED_PERFORMERS = 24;
+
+/**
+ * How many onsale rows the email carries.
+ *
+ * Small deliberately. These rows are cheap, but they sit above the shows, and a
+ * long list of things that are not on sale *yet* would push the week's actual
+ * listings out of the first screen.
+ */
+export const MAX_ONSALE_EVENTS = 4;

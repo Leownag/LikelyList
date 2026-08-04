@@ -10,15 +10,22 @@ import {
   type Profile,
 } from "@/lib/db";
 import { normalizeName } from "@/lib/normalize";
-import { formatEventDate, formatEventTime, localDateString } from "@/lib/time";
+import {
+  formatEventDate,
+  formatEventTime,
+  localDateString,
+  zonedTimeToUtc,
+} from "@/lib/time";
 import { spotifySearchUrl, youtubeSearchUrl } from "@/lib/enrich/links";
 import { createYoutubeBudget, resolveYoutube } from "@/lib/enrich/youtube";
 import { signToken } from "@/lib/tokens";
 import {
   MAX_EMAIL_EVENTS,
   MAX_ENRICHED_PERFORMERS,
+  MAX_ONSALE_EVENTS,
   type Digest,
   type DigestEvent,
+  type DigestOnsale,
   type DigestPerformer,
 } from "./types";
 
@@ -131,11 +138,18 @@ export async function buildDigest(
     .map((id) => cityById.get(id)?.name)
     .filter((name): name is string => Boolean(name));
 
-  if (weightByTmGenre.size === 0 && artistScores.size === 0) {
-    // Nothing to filter by. Sending every show in the city would be noise, not
-    // a digest.
-    return emptyDigest({ ...profile, email: recipient }, env, options, cityNames);
-  }
+  // Nothing to filter by.
+  //
+  // The alternative to a fallback here is a correct-but-useless email: a reader
+  // who has followed a city and nothing else gets "Nothing matched this week",
+  // every week, forever. That is worse than an unfiltered list, provided the
+  // email admits which one it is sending — which is what `fallbackReason` and the
+  // banner in the template are for.
+  //
+  // Signing up cannot land here any more (the subscribe box requires a genre), so
+  // in practice this is reached by someone who has unfollowed everything in the
+  // app. It is a safety net, not a normal path.
+  const unfiltered = weightByTmGenre.size === 0 && artistScores.size === 0;
 
   const { data: eventRows } = await supabase
     .from("events_cache")
@@ -153,10 +167,8 @@ export async function buildDigest(
   const seen = new Set<string>();
   const scored: DigestEvent[] = [];
 
-  for (const row of events) {
-    if (seen.has(row.tm_event_id)) continue;
-    seen.add(row.tm_event_id);
-
+  /** The genre/artist signal for one cached row. Shared with the onsale pass. */
+  function signalFor(row: CachedEvent) {
     const genreWeight = row.tm_genre_id
       ? (weightByTmGenre.get(row.tm_genre_id) ?? 0)
       : 0;
@@ -171,15 +183,34 @@ export async function buildDigest(
       }
     }
 
-    // A show qualifies on either signal. An artist the user explicitly saved a
-    // flyer for is worth including even if the genre is not one they follow.
-    if (genreWeight <= 0 && artistBoost <= 0) continue;
+    return {
+      matchedArtists,
+      // A show qualifies on either signal. An artist the user followed by hand is
+      // worth including even if the genre is not one they follow.
+      qualifies: unfiltered || genreWeight > 0 || artistBoost > 0,
+      // Artist matches dominate, but are capped so one obsessively-fed artist
+      // cannot crowd out the whole week.
+      score: genreWeight + 3 * Math.min(artistBoost, 3),
+    };
+  }
 
+  function cityLabelFor(row: CachedEvent): string {
     const city = cityById.get(row.city_id);
-    const cityLabel =
+    return (
       row.venue_city ??
       [city?.name, city?.state_code].filter(Boolean).join(", ") ??
-      "";
+      ""
+    );
+  }
+
+  for (const row of events) {
+    if (seen.has(row.tm_event_id)) continue;
+    seen.add(row.tm_event_id);
+
+    const signal = signalFor(row);
+    if (!signal.qualifies) continue;
+
+    const cityLabel = cityLabelFor(row);
 
     scored.push({
       tmEventId: row.tm_event_id,
@@ -205,15 +236,75 @@ export async function buildDigest(
         youtubeThumbnailUrl: null,
         spotifyUrl: spotifySearchUrl(performer.name),
       })),
-      // Artist matches dominate, but are capped so one obsessively-fed artist
-      // cannot crowd out the whole week.
-      score: genreWeight + 3 * Math.min(artistBoost, 3),
-      matchedArtists,
+      score: signal.score,
+      matchedArtists: signal.matchedArtists,
     });
   }
 
+  // Relevance first, date as the tie-break. In the unfiltered case every score is
+  // 0, so this degrades to pure date order, which is the only defensible ordering
+  // when there is nothing to rank by.
   scored.sort(
     (a, b) => b.score - a.score || a.localDate.localeCompare(b.localDate),
+  );
+
+  // --- On sale this week ------------------------------------------------------
+  //
+  // A separate query rather than a filter over `events`, because these events are
+  // selected on their onsale instant and are usually months outside the digest's
+  // date window. Anything already in the main list is skipped: it is the same show
+  // twice, and the reader is better served seeing it where the full card is.
+  //
+  // The bounds are the reader's own week, derived from the same date strings the
+  // rest of the digest uses rather than passed in, so no caller has to know about
+  // this. An onsale is an absolute instant, so the local dates have to be zoned to
+  // compare against it.
+  const [onsaleFrom, onsaleTo] = onsaleWindow(
+    options.startDate,
+    options.endDate,
+    profile.timezone,
+  );
+
+  const { data: onsaleRows } = await supabase
+    .from("events_cache")
+    .select(
+      "city_id, tm_event_id, name, url, local_date, local_time, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions, onsale_start",
+    )
+    .in("city_id", cityIds)
+    .gte("onsale_start", onsaleFrom.toISOString())
+    .lt("onsale_start", onsaleTo.toISOString())
+    .order("onsale_start");
+
+  const onsaleSeen = new Set<string>();
+  const onsale: DigestOnsale[] = [];
+
+  for (const row of (onsaleRows ?? []) as CachedEvent[]) {
+    if (!row.onsale_start) continue;
+    if (seen.has(row.tm_event_id)) continue;
+    if (onsaleSeen.has(row.tm_event_id)) continue;
+    onsaleSeen.add(row.tm_event_id);
+
+    const signal = signalFor(row);
+    if (!signal.qualifies) continue;
+
+    onsale.push({
+      tmEventId: row.tm_event_id,
+      name: row.name,
+      url: row.url,
+      dateLabel: row.local_date ? formatEventDate(row.local_date) : "Date TBA",
+      venueName: row.venue_name,
+      cityLabel: cityLabelFor(row),
+      onsaleStart: row.onsale_start,
+      matchedArtists: signal.matchedArtists,
+      score: signal.score,
+    });
+  }
+
+  // Soonest first, not most relevant first: this is a deadline list, and a drop on
+  // Monday has to be read before one on Friday.
+  onsale.sort(
+    (a, b) =>
+      a.onsaleStart.localeCompare(b.onsaleStart) || b.score - a.score,
   );
 
   if (!options.skipEnrichment) {
@@ -227,7 +318,11 @@ export async function buildDigest(
     windowLabel: windowLabel(options.startDate, options.endDate),
     events: scored,
     totalEventCount: scored.length,
+    // Capped here rather than in the template so the plain-text part, the HTML and
+    // the web view cannot disagree about what "this week's drops" contains.
+    onsale: onsale.slice(0, MAX_ONSALE_EVENTS),
     cities: cityNames,
+    fallbackReason: unfiltered ? "no_preferences" : null,
     previewUrl: await previewUrl(env, userId),
     unsubscribeUrl: await unsubscribeUrl(env, userId),
     unsubscribeMailto: env.emailUnsubscribeMailto || null,
@@ -329,6 +424,36 @@ async function resolveRecipient(
   return profileEmail || null;
 }
 
+/**
+ * The instants spanned by the digest's local date range, in the reader's zone.
+ *
+ * `startDate`/`endDate` are inclusive local dates; the returned range runs from
+ * local midnight on the first to local midnight after the last, so it is
+ * half-open and matches the `.gte()` / `.lt()` pair it feeds.
+ *
+ * Falls back to treating the dates as UTC if the timezone is not one Intl accepts,
+ * which keeps a single malformed profile row from throwing away the section.
+ */
+function onsaleWindow(
+  startDate: string,
+  endDate: string,
+  timeZone: string,
+): [Date, Date] {
+  const [y1, m1, d1] = startDate.split("-").map(Number);
+  const [y2, m2, d2] = endDate.split("-").map(Number);
+
+  try {
+    const from = zonedTimeToUtc(timeZone, y1, m1, d1, 0);
+    const dayAfterEnd = zonedTimeToUtc(timeZone, y2, m2, d2, 0);
+    return [from, new Date(dayAfterEnd.getTime() + 24 * 60 * 60 * 1000)];
+  } catch {
+    return [
+      new Date(Date.UTC(y1, m1 - 1, d1)),
+      new Date(Date.UTC(y2, m2 - 1, d2 + 1)),
+    ];
+  }
+}
+
 async function emptyDigest(
   profile: Pick<Profile, "id" | "email" | "timezone">,
   env: AppEnv,
@@ -342,7 +467,9 @@ async function emptyDigest(
     windowLabel: windowLabel(options.startDate, options.endDate),
     events: [],
     totalEventCount: 0,
+    onsale: [],
     cities,
+    fallbackReason: null,
     previewUrl: await previewUrl(env, profile.id),
     unsubscribeUrl: await unsubscribeUrl(env, profile.id),
     unsubscribeMailto: env.emailUnsubscribeMailto || null,

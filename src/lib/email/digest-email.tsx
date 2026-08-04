@@ -13,6 +13,7 @@ import {
 } from "@react-email/components";
 import type { Digest, DigestEvent, DigestPerformer } from "@/lib/digest/types";
 import { MAX_EMAIL_EVENTS, MAX_EMAIL_PERFORMERS } from "@/lib/digest/types";
+import { formatInstantInZone } from "@/lib/time";
 import {
   serviceIconUrl,
   serviceLabel,
@@ -56,6 +57,20 @@ const PIXELS = ["#e4ff3f", "#ff4d6d", "#4dd8ff"];
 const MONO = "'SF Mono', Menlo, Consolas, 'Courier New', monospace";
 const SANS = "'Helvetica Neue', Helvetica, Arial, sans-serif";
 
+/**
+ * A link into the signed-in app, routed through /login.
+ *
+ * A digest is opened in whatever browser the mail client hands it to, which
+ * usually holds no session — and an /app page with no session redirects to /login
+ * without remembering where the reader was going, so the promise in the link text
+ * ("change what you follow") silently turns into a generic sign-in page. Passing
+ * `next` means one emailed link plus one magic-link click lands on the actual
+ * page. Someone who *is* already signed in is forwarded straight there.
+ */
+export function appLink(siteUrl: string, path: string): string {
+  return `${siteUrl}/login?next=${encodeURIComponent(path)}`;
+}
+
 export function DigestEmail({ digest }: { digest: Digest }) {
   const shown = digest.events.slice(0, MAX_EMAIL_EVENTS);
   const remaining = digest.totalEventCount - shown.length;
@@ -90,9 +105,24 @@ export function DigestEmail({ digest }: { digest: Digest }) {
             backgroundColor: BG,
           }}
         >
-          <Header windowLabel={digest.windowLabel} cities={digest.cities} />
+          <Header
+            windowLabel={digest.windowLabel}
+            cities={digest.cities}
+            siteUrl={digest.siteUrl}
+          />
 
           <PixelStrip seed={digest.userId} />
+
+          {digest.fallbackReason === "no_preferences" && shown.length > 0 ? (
+            <UnfilteredNotice digest={digest} />
+          ) : null}
+
+          {/* Above the shows on purpose. Everything below is happening within
+              seven days, which for anything in demand means the decision has
+              already been made for you; this is the part still open. */}
+          {digest.onsale.length > 0 ? (
+            <OnsaleSection digest={digest} />
+          ) : null}
 
           {shown.length === 0 ? (
             <EmptyWeek digest={digest} />
@@ -136,24 +166,60 @@ export function DigestEmail({ digest }: { digest: Digest }) {
 function Header({
   windowLabel,
   cities,
+  siteUrl,
 }: {
   windowLabel: string;
   cities: string[];
+  siteUrl: string;
 }) {
   return (
     <Section style={{ paddingBottom: "16px" }}>
-      <Text
-        style={{
-          margin: 0,
-          fontFamily: MONO,
-          fontSize: "16px",
-          letterSpacing: "0.22em",
-          textTransform: "uppercase" as const,
-          color: TEXT,
-        }}
+      {/*
+        The mark, then the name — the same lockup the app and the auth emails use, so
+        the thing someone recognises in a crowded inbox is one thing rather than
+        three. A PNG rather than the table cells used by PixelStrip below, because
+        Gmail renders nothing for those; see scripts/build-logo.ts.
+      */}
+      <table
+        role="presentation"
+        cellPadding={0}
+        cellSpacing={0}
+        border={0}
+        style={{ borderCollapse: "collapse" as const }}
       >
-        likelylist
-      </Text>
+        <tbody>
+          <tr>
+            <td
+              valign="middle"
+              style={{ paddingRight: "12px", backgroundColor: BG }}
+            >
+              <Img
+                src={`${siteUrl}/logo-mark.png`}
+                width="36"
+                height="30"
+                // Decorative: the wordmark is live text right beside it, so a label
+                // here would only make a screen reader say the name twice.
+                alt=""
+                style={{ display: "block", border: 0 }}
+              />
+            </td>
+            <td valign="middle" style={{ backgroundColor: BG }}>
+              <Text
+                style={{
+                  margin: 0,
+                  fontFamily: MONO,
+                  fontSize: "16px",
+                  letterSpacing: "0.22em",
+                  textTransform: "uppercase" as const,
+                  color: TEXT,
+                }}
+              >
+                likelylist
+              </Text>
+            </td>
+          </tr>
+        </tbody>
+      </table>
       <Text
         style={{
           margin: "8px 0 0",
@@ -484,6 +550,159 @@ function PerformerRow({
   );
 }
 
+/**
+ * Ticket drops in the coming week.
+ *
+ * No artwork and no performer rows, unlike EventCard. Two reasons: these rows sit
+ * above the week's listings and must not push them off the first screen, and they
+ * are the first thing renderWithinSizeBudget sheds, so being cheap is what lets
+ * them exist at all.
+ *
+ * Times are rendered in the reader's own timezone — an onsale is one instant that
+ * everybody races at once, so "10:00 AM" has to mean 10am where they are.
+ */
+function OnsaleSection({ digest }: { digest: Digest }) {
+  return (
+    <Section style={{ marginBottom: "20px" }}>
+      <Text
+        style={{
+          margin: "0 0 8px",
+          fontFamily: MONO,
+          fontSize: "11px",
+          letterSpacing: "0.12em",
+          textTransform: "uppercase" as const,
+          color: ACCENT,
+        }}
+      >
+        On sale this week
+      </Text>
+
+      <table
+        role="presentation"
+        cellPadding={0}
+        cellSpacing={0}
+        border={0}
+        width="100%"
+        style={{
+          width: "100%",
+          borderCollapse: "collapse" as const,
+          border: `1px solid ${BORDER}`,
+          backgroundColor: SURFACE,
+        }}
+      >
+        <tbody>
+          {digest.onsale.map((item) => {
+            const when = formatInstantInZone(item.onsaleStart, digest.timezone);
+            const place = [item.venueName, item.cityLabel]
+              .filter(Boolean)
+              .join(" · ");
+
+            return (
+              <tr key={item.tmEventId}>
+                <td
+                  style={{
+                    padding: "10px 14px",
+                    borderBottom: `1px solid ${BORDER}`,
+                    fontFamily: SANS,
+                    fontSize: "13px",
+                    color: TEXT,
+                    backgroundColor: SURFACE,
+                  }}
+                >
+                  {item.url ? (
+                    <Link
+                      href={item.url}
+                      style={{ color: TEXT, textDecoration: "none" }}
+                    >
+                      {item.name}
+                    </Link>
+                  ) : (
+                    item.name
+                  )}
+                  <span style={{ color: MUTED }}>
+                    {place ? ` — ${place}` : ""} · {item.dateLabel}
+                  </span>
+                  {/* The onsale time is the actionable half, so it gets its own
+                      line rather than trailing a long venue string. */}
+                  <span
+                    style={{
+                      display: "block",
+                      marginTop: "3px",
+                      fontFamily: MONO,
+                      fontSize: "12px",
+                      color: ACCENT,
+                    }}
+                  >
+                    {when ? `on sale ${when}` : "on sale date announced"}
+                  </span>
+                  {item.matchedArtists.length > 0 ? (
+                    <span
+                      style={{
+                        display: "block",
+                        marginTop: "2px",
+                        fontFamily: SANS,
+                        fontSize: "12px",
+                        color: FAINT,
+                      }}
+                    >
+                      because you follow {item.matchedArtists.join(", ")}
+                    </span>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Section>
+  );
+}
+
+/**
+ * Shown when the list below it was not filtered by anything.
+ *
+ * Deliberately stated in the first person plural and up front, above the shows,
+ * because the alternative — quietly sending an unfiltered list under a promise of
+ * filtering — reads as the filtering being broken. It also cannot claim these are
+ * the *notable* shows: Ticketmaster exposes no popularity or listing-count signal
+ * (see genre-ranking.ts for the same problem), so "everything listed" is the only
+ * true description available.
+ */
+function UnfilteredNotice({ digest }: { digest: Digest }) {
+  return (
+    <Section
+      style={{
+        border: `1px solid ${BORDER}`,
+        borderLeft: `3px solid ${ACCENT}`,
+        backgroundColor: SURFACE,
+        padding: "14px 16px",
+        marginBottom: "16px",
+      }}
+    >
+      <Text
+        style={{
+          margin: 0,
+          fontFamily: SANS,
+          fontSize: "13px",
+          lineHeight: "1.5",
+          color: MUTED,
+        }}
+      >
+        You haven&apos;t told us what you listen to yet, so this is everything
+        listed in {digest.cities.join(", ") || "your cities"} — not a filtered
+        selection.{" "}
+        <Link
+          href={appLink(digest.siteUrl, "/app/subscriptions")}
+          style={{ color: ACCENT, textDecoration: "underline" }}
+        >
+          Pick your genres
+        </Link>{" "}
+        and next Friday&apos;s email gets much shorter.
+      </Text>
+    </Section>
+  );
+}
+
 function EmptyWeek({ digest }: { digest: Digest }) {
   return (
     <Section
@@ -510,14 +729,14 @@ function EmptyWeek({ digest }: { digest: Digest }) {
           ? "You haven't followed any cities yet."
           : `No listed shows in ${digest.cities.join(", ")} matched your genres or artists between ${digest.windowLabel}.`}{" "}
         <Link
-          href={`${digest.siteUrl}/app/subscriptions`}
+          href={appLink(digest.siteUrl, "/app/subscriptions")}
           style={{ color: ACCENT, textDecoration: "underline" }}
         >
           Widen your filters
         </Link>{" "}
         or{" "}
         <Link
-          href={`${digest.siteUrl}/app/feeds`}
+          href={appLink(digest.siteUrl, "/app/feeds")}
           style={{ color: ACCENT, textDecoration: "underline" }}
         >
           feed it a flyer
@@ -549,7 +768,7 @@ function Footer({ digest }: { digest: Digest }) {
           View in browser
         </Link>
         <span style={{ color: FAINT }}> · </span>
-        <Link href={`${digest.siteUrl}/app/subscriptions`} style={linkStyle}>
+        <Link href={appLink(digest.siteUrl, "/app/subscriptions")} style={linkStyle}>
           Change what you follow
         </Link>
         <span style={{ color: FAINT }}> · </span>

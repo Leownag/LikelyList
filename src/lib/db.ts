@@ -161,6 +161,14 @@ export type CachedEvent = {
   tm_genre_id: string | null;
   tm_subgenre_id: string | null;
   attractions: CachedAttraction[];
+  /**
+   * When public tickets go on sale, as an absolute instant (`timestamptz`).
+   *
+   * Null for the many events that are already on sale or never published one.
+   * Unlike `local_date` this is not a venue wall clock, because "10am Friday" for
+   * an onsale is a real moment everyone races at once.
+   */
+  onsale_start: string | null;
   fetched_at: string;
   expires_at: string;
 };
@@ -193,4 +201,5 @@ export type DigestJob = {
 
 /** Counter keys used with bump_usage / bump_global_usage. */
 export const USAGE_FEED_UPLOAD = "feed_upload";
+export const USAGE_ARTIST_SEARCH = "artist_search";
 export const USAGE_YOUTUBE_SEARCH = "youtube_search";

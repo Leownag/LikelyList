@@ -2,12 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import type { Digest, DigestEvent } from "@/lib/digest/types";
-import { MAX_EMAIL_EVENTS, MAX_EMAIL_PERFORMERS } from "@/lib/digest/types";
+import {
+  MAX_EMAIL_EVENTS,
+  MAX_EMAIL_PERFORMERS,
+  MAX_ONSALE_EVENTS,
+} from "@/lib/digest/types";
 import {
   GMAIL_CLIP_BYTES,
   buildPlainText,
   renderDigestEmail,
   renderWithinSizeBudget,
+  shrinkOneStep,
 } from "./render";
 
 /** A worst-case-ish digest: many events, long bills, every field populated. */
@@ -47,7 +52,9 @@ function makeDigest(
     windowLabel: "Aug 7 – Aug 13",
     events,
     totalEventCount: eventCount,
+    onsale: [],
     cities: ["Boston", "Brooklyn"],
+    fallbackReason: null,
     previewUrl: "https://likelylist.example.com/preview/digest/tok.sig",
     unsubscribeUrl: "https://likelylist.example.com/unsubscribe?t=tok.sig",
     unsubscribeMailto: "unsubscribe@mail.likelylist.example.com",
@@ -104,9 +111,10 @@ test("every image has explicit dimensions, and content images have alt text", as
 
     // The YouTube and Spotify marks are decorative: the word "YouTube" sits next
     // to them as real text, so alt="" is the correct accessible choice and a
-    // duplicate label would be noise in a screen reader. Everything else carries
-    // information and must be described.
-    const decorative = /\/brand\//.test(img);
+    // duplicate label would be noise in a screen reader. The likelylist mark in the
+    // header is decorative for the same reason — the wordmark beside it is live
+    // text. Everything else carries information and must be described.
+    const decorative = /\/brand\/|logo-mark\.png/.test(img);
     if (!decorative) {
       assert.match(
         img,
@@ -258,4 +266,84 @@ test("the subject names the acts rather than being generic", async () => {
   assert.ok(subject.includes("Performer 0-0"));
   assert.ok(subject.includes("and 3 more"));
   assert.ok(subject.includes("Aug 7 – Aug 13"));
+});
+
+/** A full onsale section, for the shedding and disclosure tests. */
+function onsaleRows(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    tmEventId: `onsale-${i}`,
+    name: `Announced Band ${i} With A Long Tour Name`,
+    url: `https://www.ticketmaster.com/event/onsale-${i}`,
+    dateLabel: "Sat, Nov 15",
+    venueName: "MGM Music Hall at Fenway",
+    cityLabel: "Boston, MA",
+    onsaleStart: "2026-08-08T14:00:00Z",
+    matchedArtists: i === 0 ? ["Turnstile"] : [],
+    score: 5 - i,
+  }));
+}
+
+test("onsale times are rendered in the subscriber's own timezone", async () => {
+  // 14:00Z is 10am Eastern and 7am Pacific. Getting this wrong sends someone to a
+  // queue three hours after it opened, which is the exact failure the section
+  // exists to prevent.
+  const eastern = await renderDigestEmail(
+    makeDigest(2, 2, { onsale: onsaleRows(1), timezone: "America/New_York" }),
+  );
+  assert.ok(eastern.html.includes("10:00 AM"), "expected 10:00 AM for Eastern");
+
+  const pacific = await renderDigestEmail(
+    makeDigest(2, 2, { onsale: onsaleRows(1), timezone: "America/Los_Angeles" }),
+  );
+  assert.ok(pacific.html.includes("7:00 AM"), "expected 7:00 AM for Pacific");
+});
+
+test("the budget sheds every onsale row before it sheds a single show", () => {
+  // Ordering is the whole point: a dropped show is a listing the reader never
+  // sees, while a dropped onsale row costs a line of text.
+  let working = makeDigest(5, 2, { onsale: onsaleRows(MAX_ONSALE_EVENTS) });
+
+  for (let remaining = MAX_ONSALE_EVENTS - 1; remaining >= 0; remaining--) {
+    const smaller = shrinkOneStep(working);
+    assert.ok(smaller, "expected a smaller digest while onsale rows remain");
+    assert.equal(smaller.onsale.length, remaining);
+    // Not one event has been touched yet.
+    assert.equal(smaller.events.length, 5);
+    working = smaller;
+  }
+
+  // Only now do events start going, and the last one is never given up.
+  for (let remaining = 4; remaining >= 1; remaining--) {
+    const smaller = shrinkOneStep(working);
+    assert.ok(smaller);
+    assert.equal(smaller.events.length, remaining);
+    working = smaller;
+  }
+  assert.equal(shrinkOneStep(working), null);
+  // The "view all N" count still reports the truth after all that trimming.
+  assert.equal(working.totalEventCount, 5);
+});
+
+test("an onsale section survives in a digest that comfortably fits", async () => {
+  const { html, text } = await renderWithinSizeBudget(
+    makeDigest(3, 2, { onsale: onsaleRows(MAX_ONSALE_EVENTS) }),
+  );
+  assert.ok(html.includes("On sale this week"));
+  assert.ok(html.includes("MGM Music Hall at Fenway"));
+  // The plain-text part carries the section too, matched artists and all. Asserted
+  // on the text rather than the HTML because JSX splits "because you follow" and
+  // the name into separate nodes, so they are never contiguous in the markup.
+  assert.ok(text.includes("ON SALE THIS WEEK"));
+  assert.ok(text.includes("because you follow Turnstile"));
+});
+
+test("an unfiltered digest says so, in HTML and in text", async () => {
+  // Presenting an unfiltered list as a filtered one teaches the reader that the
+  // filtering is broken, so the disclosure has to reach both parts of the message
+  // — including for someone whose client shows only plain text.
+  const { html, text } = await renderDigestEmail(
+    makeDigest(3, 2, { fallbackReason: "no_preferences" }),
+  );
+  assert.ok(html.includes("not a filtered"));
+  assert.ok(text.includes("not a filtered"));
 });
