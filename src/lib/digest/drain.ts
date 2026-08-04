@@ -3,6 +3,11 @@ import type { AppEnv } from "@/lib/env";
 import type { DigestJob, DigestRun } from "@/lib/db";
 import { buildDigest } from "./build";
 import { sendDigestEmail } from "./send";
+import {
+  findDueImports,
+  importTopArtists,
+  markNeedsReconnect,
+} from "@/lib/spotify/import";
 
 /**
  * The other half of the pipeline: actually send the queued emails.
@@ -28,6 +33,26 @@ const LEASE_SECONDS = 300;
 
 const MAX_ATTEMPTS = 3;
 
+/**
+ * How long a failed extraction's screenshot is kept.
+ *
+ * Short, because the only reason to keep it is a retry the reader has not asked for
+ * in a week — and it is the one thing in this system stored at up to 10 MB a piece.
+ */
+const IMAGE_RETENTION_DAYS = 7;
+
+/** Bounded per pass, like everything else here; the drainer runs every five minutes. */
+const IMAGE_PURGE_BATCH = 25;
+
+/**
+ * Spotify re-imports per pass.
+ *
+ * Small on purpose. Each one is two calls to Spotify plus a write, the interval is a
+ * month, and the drainer runs 288 times a day — so even three per pass clears a
+ * backlog of hundreds well inside a day without ever looking like a burst.
+ */
+const SPOTIFY_IMPORT_BATCH = 3;
+
 export type DrainResult = {
   claimed: number;
   sent: number;
@@ -35,6 +60,10 @@ export type DrainResult = {
   skipped: number;
   released: number;
   eventsPurged: number;
+  /** Retained screenshots from failed extractions, deleted from storage. */
+  imagesPurged: number;
+  /** Spotify connections whose monthly top-artist import ran on this pass. */
+  spotifyImported: number;
   runsFinalized: number;
   errors: string[];
 };
@@ -51,6 +80,8 @@ export async function drainDigestQueue(
     skipped: 0,
     released: 0,
     eventsPurged: 0,
+    imagesPurged: 0,
+    spotifyImported: 0,
     runsFinalized: 0,
     errors: [],
   };
@@ -161,6 +192,18 @@ export async function drainDigestQueue(
   // a cron trigger of their own — they are a waiting room, not a queue.
   await supabase.rpc("purge_expired_pending_subscriptions");
 
+  // Retention. Rides along here rather than on its own trigger for the same reason:
+  // this handler already runs every five minutes, and the work is a few bounded
+  // deletes. Errors are collected rather than thrown — housekeeping must never be
+  // the reason an email did not go out.
+  const { error: retentionError } = await supabase.rpc("purge_stale_data");
+  if (retentionError) {
+    result.errors.push(`retention purge: ${retentionError.message}`);
+  }
+
+  result.imagesPurged = await purgeFailedFeedImages(supabase, result.errors);
+  result.spotifyImported = await refreshSpotifyLinks(supabase, env, result.errors);
+
   for (const runId of new Set(jobs.map((job) => job.run_id))) {
     const { data: finalized } = await supabase.rpc("finalize_digest_run", {
       p_run_id: runId,
@@ -169,6 +212,125 @@ export async function drainDigestQueue(
   }
 
   return result;
+}
+
+/**
+ * Deletes the screenshots kept for failed extractions, once they are a week old.
+ *
+ * Separate from purge_stale_data because Postgres cannot delete a storage object —
+ * only the app, through the storage API, can.
+ *
+ * Why these exist at all: api/feeds/route.ts writes the image to the private bucket
+ * *only* when extraction fails, so a retry would not make somebody find the
+ * screenshot again. But there is no retry entry point in the UI yet, and the only
+ * deletions happen when a reader manually discards a feed or deletes their account.
+ * So in practice every failed upload keeps its image forever, at up to 10 MB each —
+ * a hundred ignored failures is half the free storage tier.
+ *
+ * Order matters: the object goes first, then image_path is cleared. Doing it the
+ * other way round would lose the only pointer to the file and orphan it permanently.
+ */
+async function purgeFailedFeedImages(
+  supabase: AdminClient,
+  errors: string[],
+): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - IMAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data: stale, error } = await supabase
+    .from("feeds")
+    .select("id, image_path")
+    .eq("status", "failed")
+    .not("image_path", "is", null)
+    .lt("created_at", cutoff)
+    .limit(IMAGE_PURGE_BATCH);
+
+  if (error) {
+    errors.push(`stale image lookup: ${error.message}`);
+    return 0;
+  }
+
+  const rows = (stale ?? []) as { id: string; image_path: string }[];
+  if (rows.length === 0) return 0;
+
+  const { error: removeError } = await supabase.storage
+    .from("feeds")
+    .remove(rows.map((row) => row.image_path));
+
+  if (removeError) {
+    errors.push(`stale image removal: ${removeError.message}`);
+    return 0;
+  }
+
+  const { error: clearError } = await supabase
+    .from("feeds")
+    .update({ image_path: null })
+    .in(
+      "id",
+      rows.map((row) => row.id),
+    );
+
+  if (clearError) {
+    // The files are gone but the paths remain, so the next pass will try again and
+    // storage.remove is idempotent. Worth reporting, not worth failing over.
+    errors.push(`stale image path clear: ${clearError.message}`);
+  }
+
+  return rows.length;
+}
+
+/**
+ * Re-imports top artists for the Spotify connections that are due.
+ *
+ * Here rather than on its own cron trigger because the interval is a month and this
+ * handler already runs every five minutes — a dedicated trigger would be a second
+ * moving part to keep alive for work that is never urgent.
+ *
+ * A dead grant is recorded, not retried. Somebody who revoked access in Spotify's own
+ * settings will never succeed again, and a job that keeps asking would spend calls
+ * forever and bury the real errors.
+ */
+async function refreshSpotifyLinks(
+  supabase: AdminClient,
+  env: AppEnv,
+  errors: string[],
+): Promise<number> {
+  if (!env.spotifyClientId || !env.spotifyClientSecret) return 0;
+
+  let due: string[];
+  try {
+    due = await findDueImports(supabase, SPOTIFY_IMPORT_BATCH);
+  } catch (error) {
+    errors.push(`spotify due lookup: ${describeError(error)}`);
+    return 0;
+  }
+
+  let imported = 0;
+  for (const userId of due) {
+    try {
+      const outcome = await importTopArtists(supabase, env, userId);
+
+      if (outcome.status === "imported") {
+        imported += 1;
+      } else if (outcome.status === "needs_reconnect") {
+        await markNeedsReconnect(supabase, userId, outcome.reason);
+        errors.push(`spotify ${userId}: reconnect needed`);
+      } else if (outcome.status === "error") {
+        // Left due, so the next pass retries. Transient by assumption — a rate limit
+        // or a bad minute at Spotify — which is exactly what should be retried.
+        errors.push(`spotify ${userId}: ${outcome.reason}`);
+      }
+    } catch (error) {
+      errors.push(`spotify ${userId}: ${describeError(error)}`);
+    }
+  }
+
+  return imported;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function markSkipped(

@@ -82,6 +82,22 @@ export type TmEvent = {
     timezone?: string;
     status?: { code?: string };
   };
+  /**
+   * Ticket availability windows, as distinct from the event's own date.
+   *
+   * This is the field the "on sale this week" section is built on. For anything in
+   * demand it is the deadline that actually matters — by the time a show is seven
+   * days away, its tickets went weeks ago — and it is an absolute instant, not a
+   * venue-local wall clock like `dates.start`.
+   */
+  sales?: {
+    public?: {
+      startDateTime?: string;
+      endDateTime?: string;
+      startTBD?: boolean;
+      startTBA?: boolean;
+    };
+  };
   _embedded?: {
     venues?: TmVenue[];
     /**

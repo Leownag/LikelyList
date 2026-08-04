@@ -1,6 +1,6 @@
 {
   "name": "likelylist",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,16 +8,20 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
+    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\" \"scripts/**/*.test.ts\"",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "build:logo": "tsx scripts/build-logo.ts",
     "preview:email": "tsx scripts/preview-email.ts",
+    "test:ui": "tsx --env-file=.env.local scripts/ui-test.ts",
     "preflight": "tsx --env-file=.env.local scripts/preflight.ts",
     "security:check": "tsx --env-file=.env.local scripts/security-check.ts",
     "tm:probe": "tsx --env-file=.env.local scripts/tm-probe.ts",
+    "seed:places": "tsx --env-file=.env.local scripts/seed-places.ts",
     "seed:genres": "tsx --env-file=.env.local scripts/seed-genres.ts",
-    "seed:cities": "tsx --env-file=.env.local scripts/seed-cities.ts"
+    "seed:cities": "tsx --env-file=.env.local scripts/seed-cities.ts",
+    "translate": "tsx scripts/translate-copy.ts"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.2",
@@ -39,6 +43,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "playwright": "^1.62.1",
     "supabase": "^2.111.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.5",

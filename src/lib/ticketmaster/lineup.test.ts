@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { pickImage, resolveLineup, externalLink } from "./lineup";
+import { pickImage, resolveLineup, externalLink, eventTimezone } from "./lineup";
 import type { TmAttraction, TmEvent } from "./types";
 import { normalizeName, containsTokenSequence, titleFragments } from "@/lib/normalize";
 
@@ -168,4 +168,28 @@ test("externalLink tolerates the field being absent or malformed", () => {
     ),
     "https://youtube.com/@band",
   );
+});
+
+test("a missing dates.timezone falls back to the venue, not to UTC", () => {
+  const venues = [{ name: "Roadrunner-Boston", timezone: "America/New_York" }];
+
+  // The documented field wins when present.
+  assert.equal(
+    eventTimezone({
+      id: "evt",
+      name: "KALEO",
+      dates: { timezone: "America/Denver" },
+      _embedded: { venues },
+    }),
+    "America/Denver",
+  );
+
+  // Absent on a real share of events; the venue still knows.
+  assert.equal(
+    eventTimezone({ id: "evt", name: "KALEO", _embedded: { venues } }),
+    "America/New_York",
+  );
+
+  // Neither: null, so calendar.ts can make an all-day entry rather than a wrong one.
+  assert.equal(eventTimezone({ id: "evt", name: "KALEO" }), null);
 });

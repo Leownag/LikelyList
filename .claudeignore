@@ -1,0 +1,41 @@
+# Build outputs and caches
+/.next/
+/node_modules/
+/dist/
+/build/
+/.open-next/
+.turbo/
+
+# Environment and local config
+.env.local
+.dev.vars
+.wrangler/
+
+# IDE and tooling (kept locally, not part of project source)
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated files (preview artifacts)
+email-preview.html
+email-preview.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.github/
+
+# Dependencies
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Testing
+/coverage/

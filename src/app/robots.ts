@@ -19,8 +19,20 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/privacy"],
-        disallow: ["/app", "/api/", "/auth/", "/preview/", "/unsubscribe", "/login"],
+        allow: ["/", "/explore", "/privacy"],
+        disallow: [
+          "/app",
+          "/api/",
+          "/auth/",
+          "/preview/",
+          "/unsubscribe",
+          "/login",
+          // The language switcher is a link in the header of every public page, so a
+          // crawler would otherwise follow four of them per page and be redirected
+          // straight back — each round trip a Worker invocation, and a set-cookie
+          // response Google would have to decide what to do with.
+          "/lang",
+        ],
       },
     ],
     sitemap: `${siteUrl}/sitemap.xml`,

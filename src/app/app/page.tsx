@@ -5,14 +5,19 @@ import { PixelDot, PixelMosaic } from "@/components/pixel";
 import { nextWeekdayAt } from "@/lib/time";
 import type { City, Genre, GenrePref, Subscription } from "@/lib/db";
 import { DigestPreview } from "./digest-preview";
+import { getI18n, getT } from "@/lib/i18n/server";
+import { SLOT, interleave } from "@/lib/i18n/interleave";
 
-export const metadata = { title: "Overview — likelylist" };
+export async function generateMetadata() {
+  return { title: (await getT())("title.overview") };
+}
 
 /** Friday, in the user's own timezone. */
 const DIGEST_WEEKDAY = 5;
 
 export default async function OverviewPage() {
   const { userId, profile } = await requireProfile();
+  const { locale, t } = await getI18n();
   const supabase = await createClient();
 
   // Reference tables are read separately and joined in code rather than with
@@ -23,7 +28,7 @@ export default async function OverviewPage() {
     await Promise.all([
       supabase
         .from("subscriptions")
-        .select("id, city_id")
+        .select("id, city_id, place_name, state_code")
         .eq("user_id", userId)
         .order("id"),
       supabase
@@ -55,10 +60,19 @@ export default async function OverviewPage() {
 
   const subscriptions = ((subsResult.data ?? []) as Pick<
     Subscription,
-    "id" | "city_id"
+    "id" | "city_id" | "place_name" | "state_code"
   >[]).map((subscription) => ({
     ...subscription,
-    city: cityById.get(subscription.city_id) ?? null,
+    // Since 0014 a subscription is a point with a label, and only the ones that came
+    // from the curated picker still carry a city id. The label is what to show.
+    city:
+      (subscription.city_id !== null
+        ? cityById.get(subscription.city_id)
+        : null) ?? null,
+    label:
+      [subscription.place_name, subscription.state_code]
+        .filter(Boolean)
+        .join(", ") || null,
   }));
 
   const genrePrefs = ((prefsResult.data ?? []) as Pick<
@@ -83,7 +97,9 @@ export default async function OverviewPage() {
     DIGEST_WEEKDAY,
     profile.digest_send_hour,
   );
-  const nextSendLabel = new Intl.DateTimeFormat("en-US", {
+  // The reader's locale, not en-US: an English weekday inside Chinese body copy is the
+  // most visible way a "translated" page announces that it is not.
+  const nextSendLabel = new Intl.DateTimeFormat(locale, {
     timeZone: profile.timezone,
     weekday: "long",
     month: "short",
@@ -100,12 +116,10 @@ export default async function OverviewPage() {
       <section>
         <div className="flex items-start justify-between gap-6">
           <div>
-            <p className="label-pixel">next digest</p>
+            <p className="label-pixel">{t("overview.next.label")}</p>
             <p className="mt-2 font-mono text-lg">{nextSendLabel}</p>
             <p className="mt-2 max-w-md text-sm text-muted">
-              Delivery is scheduled in your own timezone, so it stays in the
-              morning year-round. The exact minute drifts a little — Cloudflare
-              spreads scheduled work across the hour.
+              {t("overview.next.body")}
             </p>
           </div>
           <PixelMosaic
@@ -121,11 +135,11 @@ export default async function OverviewPage() {
         {!profile.digest_enabled ? (
           <div className="mt-5">
             <Notice tone="warn">
-              Your digest is currently paused. Turn it back on in{" "}
-              <Link className="text-accent underline" href="/app/settings">
-                Settings
-              </Link>
-              .
+              {interleave(t("overview.paused", { settings: SLOT }), [
+                <Link key="s" className="text-accent underline" href="/app/settings">
+                  {t("nav.settings")}
+                </Link>,
+              ])}
             </Notice>
           </div>
         ) : null}
@@ -134,14 +148,13 @@ export default async function OverviewPage() {
           <div className="mt-5">
             <Notice tone="warn">
               {subscriptions.length === 0 && genrePrefs.length === 0
-                ? "Pick at least one city and one genre and the first digest will go out this Friday."
+                ? t("overview.setup.neither")
                 : subscriptions.length === 0
-                  ? "You have genres but no cities yet — add a city to start receiving listings."
-                  : "You have cities but no genres yet — add a genre so there is something to filter by."}{" "}
+                  ? t("overview.setup.noCities")
+                  : t("overview.setup.noGenres")}{" "}
               <Link className="text-accent underline" href="/app/subscriptions">
-                Set that up
+                {t("overview.setup.link")}
               </Link>
-              .
             </Notice>
           </div>
         ) : null}
@@ -149,13 +162,13 @@ export default async function OverviewPage() {
 
       <section className="grid gap-6 sm:grid-cols-2">
         <Card className="p-5">
-          <SectionHeading hint="Queried once per city, then filtered by your genres.">
-            Cities
+          <SectionHeading hint={t("overview.cities.hint")}>
+            {t("overview.cities.heading")}
           </SectionHeading>
           {subscriptions.length === 0 ? (
-            <EmptyState title="none yet">
+            <EmptyState title={t("common.noneYet")}>
               <ButtonLink href="/app/subscriptions" variant="outline">
-                Add a city
+                {t("overview.cities.add")}
               </ButtonLink>
             </EmptyState>
           ) : (
@@ -166,10 +179,16 @@ export default async function OverviewPage() {
                   className="flex items-center gap-2 text-sm"
                 >
                   <PixelDot size={6} />
-                  <span>{subscription.city?.name ?? "Unknown city"}</span>
-                  {subscription.city?.state_code ? (
+                  {/* The stored label first: a subscription to a Census place has no
+                      curated city row to read a name from. */}
+                  <span>
+                    {subscription.place_name ??
+                      subscription.city?.name ??
+                      t("overview.cities.unnamed")}
+                  </span>
+                  {subscription.state_code ?? subscription.city?.state_code ? (
                     <span className="text-faint">
-                      {subscription.city.state_code}
+                      {subscription.state_code ?? subscription.city?.state_code}
                     </span>
                   ) : null}
                 </li>
@@ -179,13 +198,13 @@ export default async function OverviewPage() {
         </Card>
 
         <Card className="p-5">
-          <SectionHeading hint="Genres you chose, plus any inferred from your feeds.">
-            Genres
+          <SectionHeading hint={t("overview.genres.hint")}>
+            {t("overview.genres.heading")}
           </SectionHeading>
           {genrePrefs.length === 0 ? (
-            <EmptyState title="none yet">
+            <EmptyState title={t("common.noneYet")}>
               <ButtonLink href="/app/subscriptions" variant="outline">
-                Add a genre
+                {t("overview.genres.add")}
               </ButtonLink>
             </EmptyState>
           ) : (
@@ -200,9 +219,9 @@ export default async function OverviewPage() {
                         : "var(--pixel-1)"
                     }
                   />
-                  <span>{pref.genre?.name ?? "Unknown genre"}</span>
+                  <span>{pref.genre?.name ?? t("overview.genres.unknown")}</span>
                   {pref.source === "feed" ? (
-                    <span className="label-pixel">from feeds</span>
+                    <span className="label-pixel">{t("overview.genres.fromFeeds")}</span>
                   ) : null}
                 </li>
               ))}
@@ -212,8 +231,8 @@ export default async function OverviewPage() {
       </section>
 
       <section>
-        <SectionHeading hint="Builds this week's digest from live data. Reports the rendered email size, which is the one thing you can't check by eye.">
-          Try it now
+        <SectionHeading hint={t("overview.try.hint")}>
+          {t("overview.try.heading")}
         </SectionHeading>
         <Card className="p-5">
           <DigestPreview />
@@ -221,25 +240,27 @@ export default async function OverviewPage() {
       </section>
 
       <section>
-        <SectionHeading hint="Screenshots you've fed in, and what was learned from them.">
-          Feeds
+        <SectionHeading hint={t("overview.feeds.hint")}>
+          {t("overview.feeds.heading")}
         </SectionHeading>
         <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div className="text-sm">
-            <p>
-              <span className="font-mono text-lg">{feedCount}</span>{" "}
-              <span className="text-muted">
-                screenshot{feedCount === 1 ? "" : "s"} processed
-              </span>
+            {/* Chinese has no plural form, so the count is inside the string rather
+                than concatenated with an "s" the translation cannot remove. */}
+            <p className="text-muted">
+              {t(
+                feedCount === 1 ? "overview.feeds.countOne" : "overview.feeds.count",
+                { count: feedCount },
+              )}
             </p>
             {pendingFeeds > 0 ? (
               <p className="mt-1 text-xs text-pixel-3">
-                {pendingFeeds} waiting for you to confirm what was read.
+                {t("overview.feeds.pending", { count: pendingFeeds })}
               </p>
             ) : null}
           </div>
-          <ButtonLink href="/app/feeds" variant="outline">
-            Add a feed
+          <ButtonLink href="/app/subscriptions#screenshots" variant="outline">
+            {t("overview.feeds.add")}
           </ButtonLink>
         </Card>
       </section>

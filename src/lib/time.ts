@@ -181,6 +181,47 @@ export function formatEventTime(localTime: string | null): string | null {
   }).format(date);
 }
 
+/**
+ * "Fri, Aug 8 · 10:00 AM" for an absolute instant, in the reader's own timezone.
+ *
+ * Unlike formatEventDate/formatEventTime, which deliberately do *not* re-zone
+ * because a venue's local showtime is already local, this one must: an onsale is a
+ * single instant everyone races at once, and someone in Los Angeles needs to read
+ * a 10am-Eastern drop as 7am. Both parts come from one formatter call so the date
+ * and time can never disagree about which side of midnight they are on.
+ *
+ * Returns null for a missing or unparseable instant, which the caller treats as
+ * "no onsale to announce".
+ */
+export function formatInstantInZone(
+  instant: string | null,
+  timeZone: string,
+): string | null {
+  if (!instant) return null;
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return null;
+
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+      .format(date)
+      // ICU is not consistent about the date/time separator across versions — some
+      // emit "Fri, Aug 8, 10:00 AM" and others "Fri, Aug 8 at 10:00 AM". Normalise
+      // the second form so the output does not depend on the runtime's ICU build.
+      .replace(" at ", ", ");
+  } catch {
+    // An unrecognised timezone makes Intl throw a RangeError. One bad profile row
+    // must not lose the whole digest.
+    return null;
+  }
+}
+
 /** IANA zones offered in Settings. Kept short — these are the US markets. */
 export const TIMEZONES = [
   "America/New_York",

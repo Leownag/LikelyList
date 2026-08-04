@@ -75,9 +75,10 @@ create policy "own profile is readable" on public.profiles
 create policy "own profile is updatable" on public.profiles
   for update using (auth.uid() = id) with check (auth.uid() = id);
 
--- A profile row must exist for every account regardless of how they signed up
--- (Google OAuth and email/password both land in auth.users), so create it from
--- a trigger rather than from application code.
+-- A profile row must exist for every account regardless of how it came to be —
+-- an emailed sign-in link and an admin-created row from the anonymous subscribe
+-- flow both land in auth.users — so create it from a trigger rather than from
+-- application code, which would have to remember at every entry point.
 create function public.handle_new_user()
 returns trigger
 language plpgsql

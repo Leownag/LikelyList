@@ -6,7 +6,7 @@
  * with no credentials. Keep this file in step with the migrations by hand.
  */
 
-export type PrefSource = "explicit" | "feed";
+export type PrefSource = "explicit" | "feed" | "spotify";
 export type FeedStatus = "pending" | "processing" | "done" | "failed";
 export type RunStatus = "building" | "queued" | "done" | "failed";
 export type JobStatus = "queued" | "sending" | "sent" | "failed" | "skipped";
@@ -46,7 +46,15 @@ export type Profile = {
 export type Subscription = {
   id: number;
   user_id: string;
-  city_id: number;
+  /** Nullable since 0014: a subscription to a Census place has no curated city. */
+  city_id: number | null;
+  latitude: number;
+  longitude: number;
+  /** Display only — "Amherst" / "MA". Nothing builds a query from these. */
+  place_name: string | null;
+  state_code: string | null;
+  /** The quarter-degree cell, which is what the planner batches on. */
+  geo_cell: string;
   created_at: string;
 };
 
@@ -148,12 +156,27 @@ export type CachedAttraction = {
 };
 
 export type CachedEvent = {
-  city_id: number;
+  /**
+   * The quarter-degree grid cell this was fetched for, e.g. "42.25,-71".
+   *
+   * Replaced `city_id` as the key. Subscriptions store a point now, so there is no city
+   * to key on — and the cell is the query centre as well as the key, which is what lets
+   * subscribers in the same cell share one Ticketmaster call. See lib/geo-cell.ts.
+   */
+  geo_cell: string;
+  city_id: number | null;
   tm_event_id: string;
   name: string;
   url: string | null;
   local_date: string | null;
   local_time: string | null;
+  /**
+   * The venue's IANA zone, so a cached event can become a calendar entry.
+   *
+   * `local_time` alone is a wall clock with no anchor; resolving it needs this. Null
+   * when Ticketmaster supplies neither an event nor a venue zone.
+   */
+  timezone: string | null;
   venue_name: string | null;
   venue_city: string | null;
   venue_state: string | null;
@@ -161,6 +184,14 @@ export type CachedEvent = {
   tm_genre_id: string | null;
   tm_subgenre_id: string | null;
   attractions: CachedAttraction[];
+  /**
+   * When public tickets go on sale, as an absolute instant (`timestamptz`).
+   *
+   * Null for the many events that are already on sale or never published one.
+   * Unlike `local_date` this is not a venue wall clock, because "10am Friday" for
+   * an onsale is a real moment everyone races at once.
+   */
+  onsale_start: string | null;
   fetched_at: string;
   expires_at: string;
 };
@@ -193,4 +224,5 @@ export type DigestJob = {
 
 /** Counter keys used with bump_usage / bump_global_usage. */
 export const USAGE_FEED_UPLOAD = "feed_upload";
+export const USAGE_ARTIST_SEARCH = "artist_search";
 export const USAGE_YOUTUBE_SEARCH = "youtube_search";

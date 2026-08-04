@@ -35,9 +35,9 @@ export function ArtistPrefList({ artists }: { artists: ArtistPrefRow[] }) {
 
   if (visible.length === 0) {
     return (
-      <EmptyState title="no artists learned yet">
-        Paste a show flyer on the Feeds page and the artists on it will show up
-        here.
+      <EmptyState title="not following anyone yet">
+        Search for an artist above, or paste a music-app screenshot into the
+        Screenshots section below and everyone on it will show up here.
       </EmptyState>
     );
   }

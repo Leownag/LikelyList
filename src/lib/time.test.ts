@@ -5,6 +5,7 @@ import {
   digestWindow,
   formatEventDate,
   formatEventTime,
+  formatInstantInZone,
   localDateString,
   localParts,
   nextWeekdayAt,
@@ -129,4 +130,32 @@ test("event times are formatted, and absent times stay absent", () => {
   assert.equal(formatEventTime("09:30:00"), "9:30 AM");
   assert.equal(formatEventTime(null), null);
   assert.equal(formatEventTime("garbage"), null);
+});
+
+test("an onsale instant IS re-zoned, unlike an event's local time", () => {
+  // The distinction this protects: an event's showtime is already a venue wall
+  // clock, but an onsale is one instant everybody races at once. A 10am Eastern
+  // ticket drop has to read as 7am to someone in Los Angeles, or they show up
+  // three hours late to a sold-out queue.
+  const drop = "2026-08-08T14:00:00Z";
+
+  assert.equal(
+    formatInstantInZone(drop, "America/New_York"),
+    "Sat, Aug 8, 10:00 AM",
+  );
+  assert.equal(
+    formatInstantInZone(drop, "America/Los_Angeles"),
+    "Sat, Aug 8, 7:00 AM",
+  );
+  // Far enough east that the same instant is the following day.
+  assert.equal(formatInstantInZone(drop, "Asia/Taipei"), "Sat, Aug 8, 10:00 PM");
+});
+
+test("an unusable onsale value yields no label rather than throwing", () => {
+  // Same reasoning as safeSendInstant in the planner: this runs once per
+  // subscriber, and Intl throws a RangeError on an unknown zone. One bad profile
+  // row must not take out the section — or the digest.
+  assert.equal(formatInstantInZone(null, "America/New_York"), null);
+  assert.equal(formatInstantInZone("not a date", "America/New_York"), null);
+  assert.equal(formatInstantInZone("2026-08-08T14:00:00Z", "Etc/Nonsense"), null);
 });

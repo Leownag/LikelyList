@@ -1,7 +1,8 @@
 import { render } from "@react-email/render";
 import type { Digest } from "@/lib/digest/types";
-import { MAX_EMAIL_EVENTS } from "@/lib/digest/types";
-import { DigestEmail } from "./digest-email";
+import { MAX_EMAIL_EVENTS, MAX_ONSALE_EVENTS } from "@/lib/digest/types";
+import { DigestEmail, appLink } from "./digest-email";
+import { formatInstantInZone } from "@/lib/time";
 
 /**
  * Gmail clips a message body larger than this and hides everything below the
@@ -60,6 +61,23 @@ export function buildPlainText(digest: Digest): string {
   );
   lines.push("");
 
+  // Above the listings, matching the HTML. Rendered even when nothing else
+  // matched: a week with no shows can still have a drop worth catching.
+  if (digest.onsale.length > 0) {
+    lines.push("ON SALE THIS WEEK");
+    for (const item of digest.onsale) {
+      const place = [item.venueName, item.cityLabel].filter(Boolean).join(", ");
+      lines.push(`* ${item.name}${place ? ` — ${place}` : ""} · ${item.dateLabel}`);
+      const when = formatInstantInZone(item.onsaleStart, digest.timezone);
+      lines.push(`    on sale ${when ?? "date announced"}`);
+      if (item.matchedArtists.length > 0) {
+        lines.push(`    because you follow ${item.matchedArtists.join(", ")}`);
+      }
+      if (item.url) lines.push(`    ${item.url}`);
+    }
+    lines.push("");
+  }
+
   if (digest.totalEventCount === 0) {
     lines.push("Nothing matched this week.");
     lines.push("");
@@ -68,8 +86,24 @@ export function buildPlainText(digest: Digest): string {
         ? "You haven't followed any cities yet."
         : "No listed shows matched your genres or artists.",
     );
-    lines.push(`Widen your filters: ${digest.siteUrl}/app/subscriptions`);
+    lines.push(
+      `Widen your filters: ${appLink(digest.siteUrl, "/app/subscriptions")}`,
+    );
   } else {
+    // Same disclosure as the HTML banner. A text-only reader must not be the one
+    // person who gets an unfiltered list presented as a filtered one.
+    if (digest.fallbackReason === "no_preferences") {
+      lines.push(
+        `You haven't told us what you listen to yet, so this is everything listed in ${
+          digest.cities.join(", ") || "your cities"
+        } — not a filtered selection.`,
+      );
+      lines.push(
+        `Pick your genres: ${appLink(digest.siteUrl, "/app/subscriptions")}`,
+      );
+      lines.push("");
+    }
+
     for (const event of digest.events.slice(0, MAX_EMAIL_EVENTS)) {
       lines.push(
         `${event.dateLabel}${event.timeLabel ? ` ${event.timeLabel}` : ""} — ${event.name}`,
@@ -104,7 +138,9 @@ export function buildPlainText(digest: Digest): string {
 
   lines.push("---");
   lines.push(`View in browser: ${digest.previewUrl}`);
-  lines.push(`Change what you follow: ${digest.siteUrl}/app/subscriptions`);
+  lines.push(
+    `Change what you follow: ${appLink(digest.siteUrl, "/app/subscriptions")}`,
+  );
   lines.push(`Privacy: ${digest.siteUrl}/privacy`);
   lines.push(`Unsubscribe: ${digest.unsubscribeUrl}`);
   lines.push("");
@@ -134,20 +170,47 @@ export async function renderWithinSizeBudget(
   let working: Digest = {
     ...digest,
     events: digest.events.slice(0, MAX_EMAIL_EVENTS),
+    onsale: digest.onsale.slice(0, MAX_ONSALE_EVENTS),
   };
 
-  for (let attempt = 0; attempt < 8; attempt++) {
+  // Enough attempts to shed every onsale row and then every event but one. Sized
+  // from the caps rather than left at a round number, so raising either cap cannot
+  // silently leave the loop unable to reach a size that fits.
+  const maxAttempts = MAX_ONSALE_EVENTS + MAX_EMAIL_EVENTS;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rendered = await renderDigestEmail(working);
-    if (rendered.bytes <= SIZE_BUDGET || working.events.length <= 1) {
-      return rendered;
-    }
-    // Drop the lowest-ranked events. `totalEventCount` is deliberately left
-    // alone so the "view all" link still reports the true number.
-    working = {
-      ...working,
-      events: working.events.slice(0, working.events.length - 1),
-    };
+    if (rendered.bytes <= SIZE_BUDGET) return rendered;
+
+    const smaller = shrinkOneStep(working);
+    if (!smaller) return rendered;
+    working = smaller;
   }
 
   return renderDigestEmail(working);
+}
+
+/**
+ * One step smaller, or null when there is nothing left to give up.
+ *
+ * Pure and exported so the *order* of sacrifice can be tested directly. Testing
+ * it through renderWithinSizeBudget would mean constructing a digest that really
+ * exceeds 96 KB, which makes the test a slow hostage to how compact the template
+ * currently happens to be.
+ *
+ * The order is the point: onsale rows go first because they cost a line of text,
+ * whereas every dropped event is a listing the reader never sees — and shows are
+ * what they subscribed for. The last event is never dropped, because an email with
+ * nothing in it is not worth sending.
+ */
+export function shrinkOneStep(digest: Digest): Digest | null {
+  if (digest.onsale.length > 0) {
+    return { ...digest, onsale: digest.onsale.slice(0, -1) };
+  }
+
+  if (digest.events.length <= 1) return null;
+
+  // `totalEventCount` is deliberately left alone so the "view all" link still
+  // reports the true number.
+  return { ...digest, events: digest.events.slice(0, -1) };
 }

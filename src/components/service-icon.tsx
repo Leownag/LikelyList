@@ -27,28 +27,50 @@
  * nothing beside it becomes an unexplained gap.
  */
 
-export type LinkService = "youtube" | "spotify";
+import { ServiceIconImg } from "@/components/service-icon-img";
+
+export type LinkService = "youtube" | "spotify" | "google" | "apple";
 
 const ASSETS: Record<LinkService, { src: string; label: string; alt: string }> = {
   youtube: {
-    // Official mark, unmodified, from YouTube's brand resources.
-    src: "/brand/youtube.svg",
+    // Official mark, unmodified, from YouTube's brand resources — the full-colour icon
+    // from the Digital set. A PNG because YouTube ships no SVG in that kit, and
+    // resaving their artwork as one would be modifying it.
+    src: "/brand/youtube.png",
     label: "YouTube",
     alt: "YouTube",
   },
   spotify: {
-    // Official mark, unmodified, from Spotify's design guidelines.
+    // Official mark, unmodified — Primary_Logo_Green_RGB from Spotify's 2024 kit.
     src: "/brand/spotify.svg",
     label: "Spotify",
     alt: "Spotify",
+  },
+  // The calendar targets. Same rule as above and the same reason it is an asset rather
+  // than a hand-drawn glyph: both companies publish a mark and forbid redrawing it, and
+  // a pixel-art Apple logo would be a modified logo.
+  // No asset shipped for either calendar target, so both render as their name alone —
+  // which is always compliant. Google publishes a mark that could go here; Apple's
+  // guidelines do not permit using their app icons in third-party UI at all, so that one
+  // should stay text.
+  google: {
+    src: "/brand/google-calendar.svg",
+    label: "Google Calendar",
+    alt: "Google Calendar",
+  },
+  apple: {
+    src: "/brand/apple-calendar.svg",
+    label: "Apple Calendar",
+    alt: "Apple Calendar",
   },
 };
 
 /**
  * Web version. Renders the icon beside its name, both inside one link.
  *
- * `onError` hides a missing asset rather than leaving a broken-image glyph, so the
- * link still reads correctly before the brand files are added.
+ * Server-renderable, which it has to be — /app/feed and /app/pinned are server
+ * components. The mark itself hides on load failure and that needs a handler, so it
+ * lives in its own client component (see ServiceIconImg).
  */
 export function ServiceLink({
   service,
@@ -68,24 +90,25 @@ export function ServiceLink({
       target="_blank"
       className={`inline-flex items-center gap-1.5 text-muted underline decoration-border-strong hover:text-text ${className}`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={asset.src}
-        alt=""
-        aria-hidden="true"
-        width={14}
-        height={14}
-        className="shrink-0"
-        // Kept square and unscaled; the guidelines forbid distorting the mark.
-        style={{ objectFit: "contain" }}
-        onError={(event) => {
-          event.currentTarget.style.display = "none";
-        }}
-      />
+      <ServiceIconImg service={service} />
       <span>{asset.label}</span>
     </a>
   );
 }
+
+/**
+ * Where each mark lives, for callers that need the path rather than a whole link.
+ *
+ * Exported so add-to-calendar can render the same asset with the same
+ * degrade-to-nothing behaviour without duplicating the paths — three copies of a
+ * brand asset path is how one of them ends up stale.
+ */
+export const ASSET_SRC: Record<LinkService, string> = {
+  youtube: ASSETS.youtube.src,
+  spotify: ASSETS.spotify.src,
+  google: ASSETS.google.src,
+  apple: ASSETS.apple.src,
+};
 
 /** Absolute URL for the same asset, which email needs. */
 export function serviceIconUrl(service: LinkService, siteUrl: string): string {

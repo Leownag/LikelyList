@@ -42,11 +42,8 @@ test("no translation is left as the English string by accident", () => {
 });
 
 test("Accept-Language is matched by quality, then script, then base language", () => {
-  assert.equal(localeFromAcceptLanguage("fr-FR,fr;q=0.9,en;q=0.8"), "fr");
-  assert.equal(localeFromAcceptLanguage("es-MX,es;q=0.9"), "es");
   assert.equal(localeFromAcceptLanguage("en-GB,en;q=0.9"), "en");
   // Lower-quality entry wins when it is the only one we support.
-  assert.equal(localeFromAcceptLanguage("de-DE,de;q=0.9,fr;q=0.4"), "fr");
 });
 
 test("Traditional Chinese is matched by script, not just by region", () => {
@@ -84,7 +81,6 @@ test("missing or unparseable headers fall back to English", () => {
 
 test("isLocale accepts only the supported tags", () => {
   assert.ok(isLocale("zh-Hant"));
-  assert.ok(isLocale("es"));
   assert.equal(isLocale("zh-TW"), false);
   assert.equal(isLocale("de"), false);
   assert.equal(isLocale(null), false);
@@ -92,8 +88,8 @@ test("isLocale accepts only the supported tags", () => {
 });
 
 test("a translator falls back per key, not per locale", () => {
-  const t = translator("fr");
-  assert.equal(t("common.privacy"), "Confidentialité");
+  const t = translator("zh-Hant");
+  assert.equal(t("common.privacy"), "隱私權");
   // An unknown key returns the key itself rather than throwing or rendering
   // "undefined" into a page.
   // @ts-expect-error deliberately not a MessageKey

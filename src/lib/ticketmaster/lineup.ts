@@ -154,6 +154,21 @@ export function primaryClassification(
 }
 
 /**
+ * The venue's IANA zone for an event.
+ *
+ * `dates.timezone` is the documented home for this and is absent on a real share of
+ * events — 12 of 85 around Boston on one week, every one of them with a confirmed
+ * start time. The venue carries it in those cases, so it is the fallback rather
+ * than giving up: without a zone, calendar.ts resolves the local clock against UTC
+ * and an 8pm Boston show lands at 4pm.
+ */
+export function eventTimezone(event: TmEvent): string | null {
+  return (
+    event.dates?.timezone ?? event._embedded?.venues?.[0]?.timezone ?? null
+  );
+}
+
+/**
  * Reads a link out of the undocumented `externalLinks` map.
  *
  * Ticketmaster documents the field as `{provider: [{id?, url?}]}` but never

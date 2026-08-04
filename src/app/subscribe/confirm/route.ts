@@ -1,8 +1,12 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { readEnv } from "@/lib/env";
 import { confirmSubscription } from "@/lib/subscribe/anonymous";
 import { escapeHtml, standalonePage } from "@/lib/standalone-page";
-import { i18nFromRequest, type RequestI18n } from "@/lib/i18n/request";
+import {
+  i18nFromRequest,
+  languageChoices,
+  type RequestI18n,
+} from "@/lib/i18n/request";
 
 /**
  * Anonymous subscribe: step two of two.
@@ -24,7 +28,7 @@ export async function GET(request: NextRequest) {
   const i18n = i18nFromRequest(request);
   const token = request.nextUrl.searchParams.get("t");
 
-  if (!token) return invalid(env.siteUrl, i18n);
+  if (!token) return invalid(env.siteUrl, i18n, request);
 
   const action = `/subscribe/confirm?t=${escapeHtml(token)}&lang=${escapeHtml(i18n.locale)}`;
 
@@ -37,7 +41,7 @@ export async function GET(request: NextRequest) {
                   i18n.t("subscribe.confirm.action"),
                 )}</button>
               </form>`,
-      ...chrome(env.siteUrl, i18n),
+      ...chrome(env.siteUrl, i18n, request),
     }),
   );
 }
@@ -51,16 +55,36 @@ export async function POST(request: NextRequest) {
   );
 
   switch (outcome.status) {
-    case "confirmed":
+    case "confirmed": {
+      // Straight into the app, already signed in.
+      //
+      // Clicking a link from this mailbox is the same proof a magic link asks for,
+      // so demanding they now go and type the same address and wait for a *second*
+      // email was asking for it twice. /auth/callback turns the minted token into a
+      // session; `next` lands them where the promise of the email actually is.
+      //
+      // This is the one place this route sets a cookie, which is why it does not
+      // hold to the no-session rule the rest of the file follows.
+      if (outcome.signInTokenHash) {
+        const target = new URL("/auth/callback", env.siteUrl);
+        target.searchParams.set("token_hash", outcome.signInTokenHash);
+        target.searchParams.set("type", "magiclink");
+        target.searchParams.set("next", "/app/subscriptions");
+        return NextResponse.redirect(target, 303);
+      }
+
+      // Minting failed. The subscription is already written, so say so and offer
+      // the ordinary way in rather than implying something went wrong.
       return html(
         standalonePage({
           title: i18n.t("subscribe.done.title"),
           body: i18n.t("subscribe.done.body"),
           linkHref: `${env.siteUrl}/login`,
           linkLabel: i18n.t("subscribe.done.link"),
-          ...chrome(env.siteUrl, i18n),
+          ...chrome(env.siteUrl, i18n, request),
         }),
       );
+    }
 
     case "expired":
       return html(
@@ -69,7 +93,7 @@ export async function POST(request: NextRequest) {
           body: i18n.t("subscribe.expired.body"),
           linkHref: env.siteUrl,
           linkLabel: i18n.t("common.home"),
-          ...chrome(env.siteUrl, i18n),
+          ...chrome(env.siteUrl, i18n, request),
         }),
         410,
       );
@@ -81,36 +105,41 @@ export async function POST(request: NextRequest) {
           // The reason is operational detail rather than a translated string;
           // showing it beats hiding why nothing happened.
           body: outcome.reason,
-          linkHref: `${env.siteUrl}/login?mode=signup`,
+          linkHref: `${env.siteUrl}/login`,
           linkLabel: i18n.t("common.signIn"),
-          ...chrome(env.siteUrl, i18n),
+          ...chrome(env.siteUrl, i18n, request),
         }),
         500,
       );
 
     default:
-      return invalid(env.siteUrl, i18n);
+      return invalid(env.siteUrl, i18n, request);
   }
 }
 
-function invalid(siteUrl: string, i18n: RequestI18n): Response {
+function invalid(
+  siteUrl: string,
+  i18n: RequestI18n,
+  request: NextRequest,
+): Response {
   return html(
     standalonePage({
       title: i18n.t("link.invalid.title"),
       body: i18n.t("link.invalid.body"),
       linkHref: `${siteUrl}/login`,
       linkLabel: i18n.t("common.signIn"),
-      ...chrome(siteUrl, i18n),
+      ...chrome(siteUrl, i18n, request),
     }),
     400,
   );
 }
 
-function chrome(siteUrl: string, i18n: RequestI18n) {
+function chrome(siteUrl: string, i18n: RequestI18n, request: NextRequest) {
   return {
     siteUrl,
     htmlLang: i18n.htmlLang,
     privacyLabel: i18n.t("common.privacy"),
+    languages: languageChoices(request, i18n.locale),
   };
 }
 

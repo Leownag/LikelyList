@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { safeSendInstant } from "./plan";
+import { dedupeByEventId, safeSendInstant } from "./plan";
+import type { TmEvent } from "@/lib/ticketmaster/types";
 
 const NOW = new Date("2026-08-07T08:00:00Z");
 
@@ -60,4 +61,24 @@ test("one bad subscriber does not affect the others in the same pass", () => {
   assert.equal(results[2], "2026-08-07T00:00:00.000Z");
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /^bad:/);
+});
+
+test("the this-week and on-sale queries collapse to one row per event", () => {
+  // The failure this guards: events_cache is keyed on (city_id, tm_event_id), and
+  // the two per-city queries overlap whenever a show goes on sale days before it
+  // happens. Two rows with the same key in one upsert makes Postgres reject the
+  // whole statement — "ON CONFLICT DO UPDATE command cannot affect row a second
+  // time" — which would lose that city's entire cache, not just the duplicate.
+  const event = (id: string, name: string): TmEvent => ({ id, name });
+
+  const thisWeek = [event("A", "Turnstile"), event("B", "Wednesday")];
+  const onsale = [event("B", "Wednesday"), event("C", "black midi")];
+
+  const merged = dedupeByEventId([...thisWeek, ...onsale]);
+
+  assert.deepEqual(
+    merged.map((e) => e.id),
+    ["A", "B", "C"],
+  );
+  assert.equal(new Set(merged.map((e) => e.id)).size, merged.length);
 });

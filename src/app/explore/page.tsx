@@ -2,33 +2,47 @@ import { ButtonLink } from "@/components/ui";
 import { PixelMosaic, PixelRule } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { readEnv } from "@/lib/env";
 import type { City, Genre } from "@/lib/db";
 import { ExploreClient } from "./explore-client";
 import type { SubscribeCity, SubscribeGenre } from "@/components/anonymous-subscribe";
+import type { Metadata } from "next";
 
 /** Same reason as the landing page: the city and genre lists come from the
  *  database, so prerendering would freeze them at build time. */
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "Explore this week — likelylist",
+export const metadata: Metadata = {
+  title: "Explore this week",
   description:
-    "Browse the coming week's shows by city or ZIP code, filtered by genre. No account needed.",
+    "See which concerts are on this week near any US city or ZIP code, filtered by genre. " +
+    "No account, no email needed.",
+  // The results live in client state, so every search renders at this one URL. Saying so
+  // explicitly keeps any future `?city=` variant from splitting the page's signals.
+  alternates: { canonical: "/explore" },
 };
 
 export default async function ExplorePage() {
   const { cities, genres } = await loadPickers();
 
+  // Pinning needs a session, so the page asks once and the client renders the button
+  // only when there is one — a row of buttons that bounce to /login is a worse answer
+  // than no buttons for somebody who came here precisely to avoid an account.
+  const user = await getUser();
+  const pinnedIds = user ? await loadPinnedIds() : [];
+
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-10">
       <header className="flex items-center justify-between">
         <Wordmark />
+        {/* The subscribe box lives at the bottom of the results, attached to a
+            search someone has actually looked at, which is a better moment to ask
+            for an address than the top of an empty page. */}
         <nav className="flex items-center gap-2">
           <ButtonLink href="/login" variant="ghost">
             Sign in
           </ButtonLink>
-          <ButtonLink href="/login?mode=signup">Get YOUR feed</ButtonLink>
         </nav>
       </header>
 
@@ -63,7 +77,12 @@ export default async function ExplorePage() {
             seeded on this deployment.
           </p>
         ) : (
-          <ExploreClient cities={cities} genres={genres} />
+          <ExploreClient
+            cities={cities}
+            genres={genres}
+            signedIn={Boolean(user)}
+            pinnedIds={pinnedIds}
+          />
         )}
       </div>
 
@@ -102,17 +121,25 @@ async function loadPickers(): Promise<{
 
     const supabase = createAdminClient(env);
     const [citiesResult, genresResult] = await Promise.all([
-      supabase.from("cities").select("slug, name, state_code").order("sort_order"),
+      supabase
+        .from("cities")
+        .select("slug, name, state_code, latitude, longitude")
+        .order("sort_order"),
       supabase.from("genres").select("id, name").order("sort_order"),
     ]);
 
     return {
       cities: (
-        (citiesResult.data ?? []) as Pick<City, "slug" | "name" | "state_code">[]
+        (citiesResult.data ?? []) as Pick<
+          City,
+          "slug" | "name" | "state_code" | "latitude" | "longitude"
+        >[]
       ).map((city) => ({
         slug: city.slug,
         name: city.name,
         stateCode: city.state_code,
+        latitude: city.latitude,
+        longitude: city.longitude,
       })),
       genres: ((genresResult.data ?? []) as Pick<Genre, "id" | "name">[]).map(
         (genre) => ({ id: genre.id, name: genre.name }),
@@ -120,5 +147,23 @@ async function loadPickers(): Promise<{
     };
   } catch {
     return { cities: [], genres: [] };
+  }
+}
+
+/**
+ * Which events this reader has already pinned.
+ *
+ * Through the request-scoped client, so RLS scopes it to them without this code
+ * passing a user id — and it returns ids only, because that is all the button needs
+ * to start in the right state.
+ */
+async function loadPinnedIds(): Promise<string[]> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.from("pinned_events").select("tm_event_id");
+    return ((data ?? []) as { tm_event_id: string }[]).map((row) => row.tm_event_id);
+  } catch {
+    // A pin state that fails to load should cost an un-highlighted button, not the page.
+    return [];
   }
 }

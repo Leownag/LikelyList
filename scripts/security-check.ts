@@ -185,6 +185,28 @@ async function main() {
       headers: userHeaders,
       why: "pending_subscriptions holds unconfirmed email addresses. It must be service-role only.",
     });
+
+    await expectDenied({
+      name: "a Spotify refresh token is not readable by a user",
+      url: `${URL_BASE}/rest/v1/spotify_links?select=refresh_token&limit=1`,
+      headers: userHeaders,
+      why: "spotify_links holds a long-lived OAuth credential. It has RLS on with no policies precisely so no browser session can reach it — including the owner's own.",
+    });
+
+    // Pins are the first table added with per-user policies rather than deny-all, so
+    // both directions are worth asserting: the reader can write their own, and cannot
+    // write somebody else's.
+    await expectWriteDenied({
+      name: "a user cannot pin on behalf of someone else",
+      url: `${URL_BASE}/rest/v1/pinned_events`,
+      headers: userHeaders,
+      body: {
+        user_id: "00000000-0000-0000-0000-000000000000",
+        tm_event_id: "security-check-probe",
+        name: "Probe",
+      },
+      why: "The insert policy checks auth.uid() = user_id. Without it, one reader could fill another's Pinned page.",
+    });
   } finally {
     await deleteUser(userId);
     console.log(`\nCleaned up ${email}.`);
@@ -212,6 +234,35 @@ async function createUser(email: string, password: string): Promise<string | nul
   }
   const body = (await response.json()) as { id?: string };
   return body.id ?? null;
+}
+
+/**
+ * A write that must be refused.
+ *
+ * Separate from expectDenied because a rejected INSERT and a rejected SELECT look
+ * different over PostgREST: RLS turns a blocked read into an empty 200, while a blocked
+ * write is a 401/403. Treating them the same would let a silently-allowed insert pass.
+ */
+async function expectWriteDenied(options: {
+  name: string;
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+  why: string;
+}) {
+  const response = await fetch(options.url, {
+    method: "POST",
+    headers: { ...options.headers, "Content-Type": "application/json" },
+    body: JSON.stringify(options.body),
+  });
+
+  const denied = response.status === 401 || response.status === 403;
+  record({
+    name: options.name,
+    status: denied ? "pass" : "fail",
+    detail: `HTTP ${response.status}${denied ? "" : " — the write was accepted"}`,
+    why: options.why,
+  });
 }
 
 async function deleteUser(userId: string): Promise<void> {

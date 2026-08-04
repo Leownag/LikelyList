@@ -153,6 +153,11 @@ const EXPECTED_TABLES = [
   "digest_jobs",
   "usage_counters",
   "global_counters",
+  // Added by later migrations. Without them here, a deployment missing 0012 or 0013
+  // passes preflight and then fails in use: the Connect button storing nothing, the
+  // Pinned page erroring.
+  "spotify_links",
+  "pinned_events",
 ];
 
 async function checkSupabase() {
@@ -213,8 +218,49 @@ async function checkSupabase() {
       missing.length === 0
         ? `all ${EXPECTED_TABLES.length} tables present`
         : `missing: ${missing.join(", ")}`,
-    fix: "Run supabase/migrations/0001 … 0005 in order in the SQL editor.",
+    fix: "Run the files in supabase/migrations/ in order in the SQL editor.",
   });
+
+  // Columns, not just tables.
+  //
+  // The loop above only notices a missing *table*, so a later migration that adds
+  // a column slips straight through. `events_cache.onsale_start` is the one where
+  // that silence is expensive: toCachedEvent writes that key on every row, so
+  // without the column each city's cache upsert fails and the weekly send produces
+  // nothing at all — not just a missing on-sale section.
+  const onsaleProbe = await fetchWithTimeout(
+    `${url}/rest/v1/events_cache?select=onsale_start&limit=0`,
+    { headers: svc },
+  );
+  record({
+    group: "supabase",
+    name: "events_cache.onsale_start exists",
+    status: onsaleProbe.ok ? "pass" : "fail",
+    detail: onsaleProbe.ok
+      ? "on-sale column present"
+      : `HTTP ${onsaleProbe.status}`,
+    fix: "Run supabase/migrations/0008_onsale.sql. Without it every event cache write fails, not only the on-sale section.",
+  });
+
+  // Reference and retention tables added after the original five migrations. A
+  // missing one is silent in a different way each time — no city suggestions, no ZIP
+  // caching, no cleanup — so each is named rather than lumped together.
+  for (const [table, fix] of [
+    ["places", "Run 0010_places.sql, then npm run seed:places."],
+    ["postal_codes", "Run 0009_postal_codes.sql. ZIP search works without it but re-geocodes every time."],
+  ] as const) {
+    const probe = await fetchWithTimeout(
+      `${url}/rest/v1/${table}?select=*&limit=0`,
+      { headers: svc },
+    );
+    record({
+      group: "supabase",
+      name: `${table} exists`,
+      status: probe.ok ? "pass" : "fail",
+      detail: probe.ok ? "present" : `HTTP ${probe.status}`,
+      fix,
+    });
+  }
 
   // Reference data.
   for (const [table, script] of [
@@ -240,7 +286,15 @@ async function checkSupabase() {
   // Privilege lockdown from 0004. These RPCs must NOT be callable with the anon
   // key — before that migration they were, which let any signed-in user suppress
   // everybody's email or exhaust another user's quota.
-  for (const rpc of ["claim_digest_jobs", "bump_global_usage"]) {
+  // purge_stale_data joins the list for the same reason: left open, any signed-in
+  // user could delete ninety days of send history over PostgREST.
+  //
+  // Read this as "not reachable", not as "exists and is locked down". A function that
+  // has not been created yet also answers 404, so this cannot tell a revoked function
+  // from a missing one — and deliberately does not try, because the only way to prove
+  // purge_stale_data exists is to run it, which deletes rows. A missing 0011 surfaces
+  // in the drainer instead, as a `retention purge:` entry in DrainResult.errors.
+  for (const rpc of ["claim_digest_jobs", "bump_global_usage", "purge_stale_data"]) {
     const response = await fetchWithTimeout(`${url}/rest/v1/rpc/${rpc}`, {
       method: "POST",
       headers: {
@@ -258,7 +312,7 @@ async function checkSupabase() {
       name: `rpc/${rpc} is not public`,
       status: locked ? "pass" : "fail",
       detail: `HTTP ${response.status}`,
-      fix: "Apply supabase/migrations/0004_function_grants.sql.",
+      fix: "Apply supabase/migrations/0004_function_grants.sql (and 0011 for purge_stale_data).",
     });
   }
 
@@ -488,13 +542,8 @@ async function checkResend() {
         record({
           group: "resend",
           name: "EMAIL_FROM is production-ready",
-          status: from.includes("resend.dev") ? "warn" : "skip",
-          detail: from.includes("resend.dev")
-            ? "still the shared resend.dev test sender"
-            : "cannot be checked with a sending-only key",
-          fix: from.includes("resend.dev")
-            ? "Verify mail.likelylist.tech in Resend, then point EMAIL_FROM at it. Until then delivery is limited to your own address."
-            : undefined,
+          status: "skip",
+          detail: "cannot be checked with a sending-only key",
         });
       }
       return;
@@ -520,15 +569,7 @@ async function checkResend() {
     // The address in EMAIL_FROM has to be on a *verified* domain, or real
     // delivery silently fails for everyone except the account owner.
     const fromDomain = from.match(/@([^\s>]+)/)?.[1]?.toLowerCase();
-    if (from.includes("resend.dev")) {
-      record({
-        group: "resend",
-        name: "EMAIL_FROM is production-ready",
-        status: "warn",
-        detail: "still the shared resend.dev test sender",
-        fix: "Verify mail.likelylist.tech in Resend, then set EMAIL_FROM to an address on it. Until then delivery is limited to your own address.",
-      });
-    } else if (!fromDomain) {
+    if (!fromDomain) {
       record({
         group: "resend",
         name: "EMAIL_FROM is production-ready",

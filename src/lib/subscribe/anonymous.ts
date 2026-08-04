@@ -5,6 +5,8 @@ import { createAdminClient, type AdminClient } from "@/lib/supabase/admin";
 import { signToken, verifyToken, SUBSCRIBE_TOKEN_MAX_AGE_MS } from "@/lib/tokens";
 import { renderConfirmEmail } from "@/lib/email/confirm-email";
 import { TIMEZONES } from "@/lib/time";
+import { geoCellKey } from "@/lib/geo-cell";
+import { geocodePostalCode } from "@/lib/geocode";
 import type { City, Genre } from "@/lib/db";
 
 /**
@@ -28,6 +30,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@,]+\.[^\s@,]{2,}$/;
 /** Cap on confirmation emails per address, so this cannot be used to pester one. */
 const MAX_CONFIRMS_PER_ADDRESS = 3;
 
+/**
+ * Ceiling on genres in one request.
+ *
+ * Above the 22 rows seed-genres.ts creates, because /explore's subscribe button sends
+ * every genre when the reader filtered by none — which is what "email me this" means
+ * when what they were shown was everything. A cap of 20 silently dropped two.
+ */
+const MAX_GENRES = 40;
+
 /** Project-wide daily cap on confirmation emails. */
 const DAILY_CONFIRM_BUDGET = 200;
 const USAGE_KIND = "anon_subscribe_email";
@@ -39,11 +50,31 @@ export type RequestOutcome =
   | { status: "rate_limited"; reason: string }
   | { status: "invalid"; reason: string };
 
+/**
+ * Where a subscription will be centred, resolved from whatever the caller named it by.
+ *
+ * A point rather than a city, because /explore searches by point — and its subscribe
+ * button promises "email me *this*", which has to mean the place that was searched even
+ * when that place is one of the 32,329 Census towns rather than one of the 43 curated
+ * metros. `cityId` stays set when there is one, so the city grid still shows it.
+ */
+export type SubscribePlace = {
+  cityId: number | null;
+  name: string;
+  stateCode: string | null;
+  latitude: number;
+  longitude: number;
+};
+
 export async function requestSubscription(
   env: AppEnv,
   input: {
     email: string;
     citySlug: string | null;
+    /** Census GEOID from the town typeahead. */
+    placeGeoid?: string | null;
+    /** Used when the search above was by ZIP. Re-resolved here, never trusted as a point. */
+    postalCode?: string | null;
     genreIds: number[];
     timezone: string;
   },
@@ -66,6 +97,29 @@ export async function requestSubscription(
     .maybeSingle<{ id: string }>();
   if (existing) return { status: "already_subscribed" };
 
+  // Resolved before the budget is spent, so a request naming a place or a genre we
+  // cannot resolve does not eat one of the day's 200 confirmations.
+  const place = await resolvePlace(supabase, input);
+  const genres = await findGenres(supabase, input.genreIds);
+
+  // Both of these are the same failure: a subscription that confirms cleanly and then
+  // produces nothing. Without a point the planner has nowhere to search, and without a
+  // genre buildDigest filters everything out — so either one would mean an account that
+  // gets silence every Friday. The Zod schema cannot catch them: it sees a non-empty
+  // array and a well-shaped ZIP, not whether they name anything that exists here.
+  if (!place) {
+    return {
+      status: "invalid",
+      reason: "We could not find that place. Pick one from the list.",
+    };
+  }
+  if (genres.length === 0) {
+    return {
+      status: "invalid",
+      reason: "Pick at least one genre — that's what the email filters on.",
+    };
+  }
+
   const day = new Date().toISOString().slice(0, 10);
   const { data: sentToday } = await supabase.rpc("bump_global_usage", {
     p_kind: USAGE_KIND,
@@ -79,10 +133,6 @@ export async function requestSubscription(
     };
   }
 
-  const city = input.citySlug
-    ? await findCity(supabase, input.citySlug)
-    : null;
-  const genres = await findGenres(supabase, input.genreIds);
   const timezone = TIMEZONES.includes(input.timezone as (typeof TIMEZONES)[number])
     ? input.timezone
     : "America/New_York";
@@ -94,7 +144,11 @@ export async function requestSubscription(
     .upsert(
       {
         email,
-        city_id: city?.id ?? null,
+        city_id: place.cityId,
+        place_name: place.name,
+        state_code: place.stateCode,
+        latitude: place.latitude,
+        longitude: place.longitude,
         genre_ids: genres.map((genre) => genre.id),
         timezone,
       },
@@ -129,13 +183,13 @@ export async function requestSubscription(
 
   const message = await renderConfirmEmail({
     confirmUrl,
-    cityName: city?.name ?? null,
+    cityName: [place.name, place.stateCode].filter(Boolean).join(", "),
     genreNames: genres.map((genre) => genre.name),
     siteUrl: env.siteUrl,
   });
 
   const { error: sendError } = await resend.emails.send({
-    from: env.emailFrom,
+    from: requireKey(env.emailFrom, "EMAIL_FROM", "sending the confirmation"),
     to: email,
     subject: message.subject,
     html: message.html,
@@ -161,7 +215,23 @@ export async function requestSubscription(
 }
 
 export type ConfirmOutcome =
-  | { status: "confirmed"; email: string; cityName: string | null; genreCount: number }
+  | {
+      status: "confirmed";
+      email: string;
+      cityName: string | null;
+      genreCount: number;
+      /**
+       * A one-shot token that signs this person straight in, or null if minting it
+       * failed.
+       *
+       * They have just proved they hold the mailbox by clicking a link from it,
+       * which is exactly the evidence a magic link asks for — so sending them to
+       * /login to type the same address and wait for a second email would be asking
+       * for the same proof twice. The caller redirects through /auth/callback with
+       * this instead.
+       */
+      signInTokenHash: string | null;
+    }
   | { status: "expired" }
   | { status: "invalid" }
   | { status: "error"; reason: string };
@@ -195,12 +265,18 @@ export async function confirmSubscription(
 
   const { data: pending } = await supabase
     .from("pending_subscriptions")
-    .select("id, email, city_id, genre_ids, timezone, expires_at")
+    .select(
+      "id, email, city_id, place_name, state_code, latitude, longitude, genre_ids, timezone, expires_at",
+    )
     .eq("id", verified.userId)
     .maybeSingle<{
       id: string;
       email: string;
       city_id: number | null;
+      place_name: string | null;
+      state_code: string | null;
+      latitude: number | null;
+      longitude: number | null;
       genre_ids: number[];
       timezone: string;
       expires_at: string;
@@ -231,13 +307,37 @@ export async function confirmSubscription(
     { onConflict: "id" },
   );
 
-  if (pending.city_id) {
-    await supabase
-      .from("subscriptions")
-      .upsert(
-        { user_id: userId, city_id: pending.city_id },
-        { onConflict: "user_id,city_id", ignoreDuplicates: true },
-      );
+  // The point was resolved when the request was made (see resolvePlace), so it is
+  // copied straight in — a subscription has been a point since 0014, and a row without
+  // one is unusable because the planner searches by point and radius.
+  //
+  // The city fallback is for rows written before 0016, which hold a city_id and no
+  // coordinates. Those expire within a week, but a confirmation already in someone's
+  // inbox must not turn into a subscription to nowhere.
+  const point =
+    pending.latitude != null && pending.longitude != null
+      ? {
+          cityId: pending.city_id,
+          name: pending.place_name ?? "",
+          stateCode: pending.state_code,
+          latitude: Number(pending.latitude),
+          longitude: Number(pending.longitude),
+        }
+      : await legacyCityPoint(supabase, pending.city_id);
+
+  if (point) {
+    await supabase.from("subscriptions").upsert(
+      {
+        user_id: userId,
+        city_id: point.cityId,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        place_name: point.name,
+        state_code: point.stateCode,
+        geo_cell: geoCellKey(point.latitude, point.longitude),
+      },
+      { onConflict: "user_id,latitude,longitude", ignoreDuplicates: true },
+    );
   }
 
   const genreIds = pending.genre_ids ?? [];
@@ -256,25 +356,50 @@ export async function confirmSubscription(
   // The waiting room is emptied last, so a failure above leaves the link usable.
   await supabase.from("pending_subscriptions").delete().eq("id", pending.id);
 
-  const city = pending.city_id
-    ? await findCityById(supabase, pending.city_id)
-    : null;
-
   return {
     status: "confirmed",
     email: pending.email,
-    cityName: city?.name ?? null,
+    cityName: point?.name || null,
     genreCount: genreIds.length,
+    signInTokenHash: await mintSignInToken(supabase, pending.email),
   };
+}
+
+/**
+ * A `token_hash` that /auth/callback can verify, minted without sending anything.
+ *
+ * `generateLink` exists for projects that deliver their own mail: it returns the
+ * hashed token and does **not** email anybody, which is the property this depends
+ * on — a second message arriving here would be worse than the extra click it
+ * replaces.
+ *
+ * Returns null rather than throwing. Failing to mint a convenience token must not
+ * undo a confirmation that has already been written; the caller falls back to the
+ * ordinary "go and sign in" page.
+ */
+async function mintSignInToken(
+  supabase: AdminClient,
+  email: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+    });
+    if (error) return null;
+    return data.properties?.hashed_token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * The auth user for this address, creating one if needed.
  *
  * `email_confirm: true` is correct here and only here: clicking the confirmation
- * link is proof of control of the mailbox. It also matters for later — a confirmed
- * address is what lets Supabase attach a Google identity to this same user instead
- * of refusing or forking it.
+ * link is proof of control of the mailbox, which is the same evidence a magic link
+ * asks for. Marking it confirmed is also what lets the account be signed into
+ * immediately afterwards without a second round trip to the inbox.
  */
 async function findOrCreateUser(
   supabase: AdminClient,
@@ -295,35 +420,112 @@ async function findOrCreateUser(
   return data.user.id;
 }
 
-async function findCity(
+/**
+ * The point to subscribe to, from whichever way the caller named it.
+ *
+ * Every branch resolves against our own data — `cities` by slug, `places` by GEOID,
+ * `postal_codes` (via the cached geocoder) by ZIP. A browser can therefore choose any
+ * real US place but cannot invent coordinates, which matters because each distinct grid
+ * cell costs one Ticketmaster query per week out of a 5000/day project-wide quota.
+ *
+ * First match wins, in the order the UI offers them.
+ */
+async function resolvePlace(
   supabase: AdminClient,
-  slug: string,
-): Promise<Pick<City, "id" | "name"> | null> {
-  const { data } = await supabase
-    .from("cities")
-    .select("id, name")
-    .eq("slug", slug)
-    .maybeSingle<Pick<City, "id" | "name">>();
-  return data ?? null;
+  input: {
+    citySlug: string | null;
+    placeGeoid?: string | null;
+    postalCode?: string | null;
+  },
+): Promise<SubscribePlace | null> {
+  if (input.citySlug) {
+    const { data } = await supabase
+      .from("cities")
+      .select("id, name, state_code, latitude, longitude")
+      .eq("slug", input.citySlug)
+      .maybeSingle<
+        Pick<City, "id" | "name" | "state_code" | "latitude" | "longitude">
+      >();
+    if (data?.latitude != null && data.longitude != null) {
+      return {
+        cityId: data.id,
+        name: data.name,
+        stateCode: data.state_code,
+        latitude: Number(data.latitude),
+        longitude: Number(data.longitude),
+      };
+    }
+  }
+
+  if (input.placeGeoid && /^\d{2,10}$/.test(input.placeGeoid)) {
+    const { data } = await supabase
+      .from("places")
+      .select("name, state_code, latitude, longitude")
+      .eq("geoid", input.placeGeoid)
+      .maybeSingle<{
+        name: string;
+        state_code: string | null;
+        latitude: number;
+        longitude: number;
+      }>();
+    if (data) {
+      return {
+        cityId: null,
+        name: data.name,
+        stateCode: data.state_code,
+        latitude: Number(data.latitude),
+        longitude: Number(data.longitude),
+      };
+    }
+  }
+
+  if (input.postalCode) {
+    const point = await geocodePostalCode(supabase, input.postalCode);
+    if (point) {
+      return {
+        cityId: null,
+        name: point.placeName ?? input.postalCode,
+        stateCode: point.stateCode,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      };
+    }
+  }
+
+  return null;
 }
 
-async function findCityById(
+/** A pre-0016 pending row's city, as a point. See the call site for why this remains. */
+async function legacyCityPoint(
   supabase: AdminClient,
-  id: number,
-): Promise<Pick<City, "id" | "name"> | null> {
+  cityId: number | null,
+): Promise<SubscribePlace | null> {
+  if (!cityId) return null;
+
   const { data } = await supabase
     .from("cities")
-    .select("id, name")
-    .eq("id", id)
-    .maybeSingle<Pick<City, "id" | "name">>();
-  return data ?? null;
+    .select("id, name, state_code, latitude, longitude")
+    .eq("id", cityId)
+    .maybeSingle<
+      Pick<City, "id" | "name" | "state_code" | "latitude" | "longitude">
+    >();
+
+  if (!data || data.latitude == null || data.longitude == null) return null;
+  return {
+    cityId: data.id,
+    name: data.name,
+    stateCode: data.state_code,
+    latitude: Number(data.latitude),
+    longitude: Number(data.longitude),
+  };
 }
 
 async function findGenres(
   supabase: AdminClient,
   ids: number[],
 ): Promise<Pick<Genre, "id" | "name">[]> {
-  const wanted = ids.filter(Number.isInteger).slice(0, 20);
+  // Above the 22 genres Ticketmaster publishes, so "every genre" fits. See MAX_GENRES.
+  const wanted = ids.filter(Number.isInteger).slice(0, MAX_GENRES);
   if (wanted.length === 0) return [];
   const { data } = await supabase
     .from("genres")

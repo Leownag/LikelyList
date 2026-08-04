@@ -25,26 +25,10 @@ export async function findAttractionByName(
   client: TmClient,
   name: string,
 ): Promise<TmAttraction | null> {
-  const trimmed = name.trim();
-  if (trimmed.length < 2) return null;
-
-  const response = await client.get<TmAttractionsResponse>(
-    "/attractions.json",
-    {
-      keyword: trimmed,
-      segmentId: MUSIC_SEGMENT_ID,
-      size: 10,
-      sort: "relevance,desc",
-      includeTest: "no",
-    },
-  );
-
-  const candidates = (response._embedded?.attractions ?? []).filter(
-    (a) => !a.test,
-  );
+  const candidates = await searchAttractions(client, name);
   if (candidates.length === 0) return null;
 
-  const target = normalizeName(trimmed);
+  const target = normalizeName(name.trim());
 
   // Prefer an exact normalised match over whatever relevance ranked first —
   // a search for "Turnstile" should not return a tribute band because it
@@ -55,6 +39,36 @@ export async function findAttractionByName(
   });
 
   return exact ?? candidates[0];
+}
+
+/**
+ * Relevance-ranked candidates for a free-text name.
+ *
+ * Separate from findAttractionByName because the two callers want different
+ * things: applying a feed wants one decision made for it, while someone typing an
+ * artist into the app wants to choose — "Nirvana" and a Nirvana tribute act are
+ * indistinguishable to a scorer and obvious to a person.
+ */
+export async function searchAttractions(
+  client: TmClient,
+  name: string,
+  limit = 10,
+): Promise<TmAttraction[]> {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return [];
+
+  const response = await client.get<TmAttractionsResponse>(
+    "/attractions.json",
+    {
+      keyword: trimmed,
+      segmentId: MUSIC_SEGMENT_ID,
+      size: Math.min(Math.max(limit, 1), 20),
+      sort: "relevance,desc",
+      includeTest: "no",
+    },
+  );
+
+  return (response._embedded?.attractions ?? []).filter((a) => !a.test);
 }
 
 /** Flattens an attraction into the cache row, minus the YouTube columns. */
