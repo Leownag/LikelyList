@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+/*
+ * likely — black minimal with pixel-block decoration.
+ *
+ * Two rules hold the whole look together:
+ *   1. Nothing is ever rounded. Sharp corners read as both "minimal" and
+ *      "pixel", and they happen to be the only thing Classic Outlook renders
+ *      reliably, so the site and the email can share one visual language.
+ *   2. Everything sits on a 4px grid, so the pixel-block decoration lines up
+ *      with the layout instead of fighting it.
+ */
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --surface-raised: #1c1c1c;
+  --border: #262626;
+  --border-strong: #3f3f3f;
+  --text: #fafafa;
+  --muted: #a1a1aa;
+  --faint: #71717a;
+
+  /* Single accent, used for actions and focus. */
+  --accent: #e4ff3f;
+  --accent-ink: #0a0a0a;
+
+  /* Extra hues used only by the pixel mosaics, never by UI chrome. */
+  --pixel-1: #e4ff3f;
+  --pixel-2: #ff4d6d;
+  --pixel-3: #4dd8ff;
+
+  --danger: #ff4d6d;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-pixel-1: var(--pixel-1);
+  --color-pixel-2: var(--pixel-2);
+  --color-pixel-3: var(--pixel-3);
+  --color-danger: var(--danger);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-pixel: var(--font-silkscreen);
+
+  --radius-none: 0;
+}
+
+/* The site is dark-only by design; declaring it stops browsers from
+   force-inverting form controls and scrollbars. */
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Rule 1, enforced rather than remembered. */
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@layer components {
+  /* Small uppercase pixel label — section headers, field labels, badges. */
+  .label-pixel {
+    font-family: var(--font-pixel), var(--font-mono), monospace;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Decorative mosaic. Squares are drawn as background-image so a single
+     element can render a whole block field without dozens of DOM nodes. */
+  .pixel-field {
+    --cell: 8px;
+    image-rendering: pixelated;
+    background-image:
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: var(--cell) var(--cell);
+  }
+
+  .pixel-block {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+  }
+}
