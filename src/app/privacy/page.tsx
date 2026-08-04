@@ -4,7 +4,7 @@ import { PixelRule } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
 
 export const metadata = {
-  title: "Privacy — likelylist",
+  title: "Privacy",
   description:
     "What likelylist collects, who processes it, how long it is kept, and how to get rid of it.",
 };

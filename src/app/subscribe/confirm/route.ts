@@ -2,7 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readEnv } from "@/lib/env";
 import { confirmSubscription } from "@/lib/subscribe/anonymous";
 import { escapeHtml, standalonePage } from "@/lib/standalone-page";
-import { i18nFromRequest, type RequestI18n } from "@/lib/i18n/request";
+import {
+  i18nFromRequest,
+  languageChoices,
+  type RequestI18n,
+} from "@/lib/i18n/request";
 
 /**
  * Anonymous subscribe: step two of two.
@@ -24,7 +28,7 @@ export async function GET(request: NextRequest) {
   const i18n = i18nFromRequest(request);
   const token = request.nextUrl.searchParams.get("t");
 
-  if (!token) return invalid(env.siteUrl, i18n);
+  if (!token) return invalid(env.siteUrl, i18n, request);
 
   const action = `/subscribe/confirm?t=${escapeHtml(token)}&lang=${escapeHtml(i18n.locale)}`;
 
@@ -37,7 +41,7 @@ export async function GET(request: NextRequest) {
                   i18n.t("subscribe.confirm.action"),
                 )}</button>
               </form>`,
-      ...chrome(env.siteUrl, i18n),
+      ...chrome(env.siteUrl, i18n, request),
     }),
   );
 }
@@ -77,7 +81,7 @@ export async function POST(request: NextRequest) {
           body: i18n.t("subscribe.done.body"),
           linkHref: `${env.siteUrl}/login`,
           linkLabel: i18n.t("subscribe.done.link"),
-          ...chrome(env.siteUrl, i18n),
+          ...chrome(env.siteUrl, i18n, request),
         }),
       );
     }
@@ -89,7 +93,7 @@ export async function POST(request: NextRequest) {
           body: i18n.t("subscribe.expired.body"),
           linkHref: env.siteUrl,
           linkLabel: i18n.t("common.home"),
-          ...chrome(env.siteUrl, i18n),
+          ...chrome(env.siteUrl, i18n, request),
         }),
         410,
       );
@@ -103,34 +107,39 @@ export async function POST(request: NextRequest) {
           body: outcome.reason,
           linkHref: `${env.siteUrl}/login`,
           linkLabel: i18n.t("common.signIn"),
-          ...chrome(env.siteUrl, i18n),
+          ...chrome(env.siteUrl, i18n, request),
         }),
         500,
       );
 
     default:
-      return invalid(env.siteUrl, i18n);
+      return invalid(env.siteUrl, i18n, request);
   }
 }
 
-function invalid(siteUrl: string, i18n: RequestI18n): Response {
+function invalid(
+  siteUrl: string,
+  i18n: RequestI18n,
+  request: NextRequest,
+): Response {
   return html(
     standalonePage({
       title: i18n.t("link.invalid.title"),
       body: i18n.t("link.invalid.body"),
       linkHref: `${siteUrl}/login`,
       linkLabel: i18n.t("common.signIn"),
-      ...chrome(siteUrl, i18n),
+      ...chrome(siteUrl, i18n, request),
     }),
     400,
   );
 }
 
-function chrome(siteUrl: string, i18n: RequestI18n) {
+function chrome(siteUrl: string, i18n: RequestI18n, request: NextRequest) {
   return {
     siteUrl,
     htmlLang: i18n.htmlLang,
     privacyLabel: i18n.t("common.privacy"),
+    languages: languageChoices(request, i18n.locale),
   };
 }
 

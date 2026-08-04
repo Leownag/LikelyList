@@ -750,7 +750,7 @@ function EmptyWeek({ digest }: { digest: Digest }) {
         </Link>{" "}
         or{" "}
         <Link
-          href={appLink(digest.siteUrl, "/app/feeds")}
+          href={appLink(digest.siteUrl, "/app/subscriptions#screenshots")}
           style={{ color: ACCENT, textDecoration: "underline" }}
         >
           feed it a flyer

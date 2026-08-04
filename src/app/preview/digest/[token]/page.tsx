@@ -10,7 +10,7 @@ import { Wordmark } from "@/components/wordmark";
 import type { Profile } from "@/lib/db";
 
 export const metadata = {
-  title: "Your week — likelylist",
+  title: "Your week",
   // An inbox link should not end up in a search index.
   robots: { index: false, follow: false },
 };

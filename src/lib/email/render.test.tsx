@@ -28,6 +28,8 @@ function makeDigest(
     url: `https://www.ticketmaster.com/event/${i}`,
     dateLabel: "Fri, Aug 7",
     timeLabel: "8:00 PM",
+    localTime: "20:00:00",
+    timezone: "America/New_York",
     localDate: "2026-08-07",
     venueName: "Roadrunner",
     cityLabel: "Boston, MA",

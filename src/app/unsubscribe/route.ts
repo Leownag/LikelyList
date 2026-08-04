@@ -3,7 +3,11 @@ import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyToken } from "@/lib/tokens";
 import { escapeHtml, standalonePage } from "@/lib/standalone-page";
-import { i18nFromRequest, type RequestI18n } from "@/lib/i18n/request";
+import {
+  i18nFromRequest,
+  languageChoices,
+  type RequestI18n,
+} from "@/lib/i18n/request";
 
 /**
  * One-click unsubscribe (RFC 8058).
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
   const token = tokenFrom(request);
 
   const verified = await verifyToken(env.unsubscribeHmacSecret, "unsubscribe", token);
-  if (!verified) return invalid(env.siteUrl, i18n);
+  if (!verified) return invalid(env.siteUrl, i18n, request);
 
   const supabase = createAdminClient(env);
   const { error } = await supabase
@@ -47,7 +51,7 @@ export async function POST(request: NextRequest) {
       standalonePage({
         title: i18n.t("error.generic.title"),
         body: i18n.t("error.generic.body"),
-        ...chrome(env.siteUrl, i18n),
+        ...chrome(env.siteUrl, i18n, request),
       }),
       500,
     );
@@ -62,7 +66,7 @@ export async function POST(request: NextRequest) {
       // a bare sign-in page having forgotten where they were going.
       linkHref: `${env.siteUrl}/login?next=${encodeURIComponent("/app/settings")}`,
       linkLabel: i18n.t("unsubscribe.done.link"),
-      ...chrome(env.siteUrl, i18n),
+      ...chrome(env.siteUrl, i18n, request),
     }),
   );
 }
@@ -73,7 +77,7 @@ export async function GET(request: NextRequest) {
   const token = tokenFrom(request);
 
   const verified = await verifyToken(env.unsubscribeHmacSecret, "unsubscribe", token);
-  if (!verified) return invalid(env.siteUrl, i18n);
+  if (!verified) return invalid(env.siteUrl, i18n, request);
 
   // A form, not an automatic action: see the note above about link scanners. The
   // language is carried through so the POST renders in the same one.
@@ -88,28 +92,33 @@ export async function GET(request: NextRequest) {
                   i18n.t("unsubscribe.confirm.action"),
                 )}</button>
               </form>`,
-      ...chrome(env.siteUrl, i18n),
+      ...chrome(env.siteUrl, i18n, request),
     }),
   );
 }
 
-function invalid(siteUrl: string, i18n: RequestI18n): Response {
+function invalid(
+  siteUrl: string,
+  i18n: RequestI18n,
+  request: NextRequest,
+): Response {
   return html(
     standalonePage({
       title: i18n.t("link.invalid.title"),
       body: i18n.t("link.invalid.body"),
-      ...chrome(siteUrl, i18n),
+      ...chrome(siteUrl, i18n, request),
     }),
     400,
   );
 }
 
 /** The bits every page on this route shares. */
-function chrome(siteUrl: string, i18n: RequestI18n) {
+function chrome(siteUrl: string, i18n: RequestI18n, request: NextRequest) {
   return {
     siteUrl,
     htmlLang: i18n.htmlLang,
     privacyLabel: i18n.t("common.privacy"),
+    languages: languageChoices(request, i18n.locale),
   };
 }
 
