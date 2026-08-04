@@ -20,7 +20,7 @@ export default async function FeedsPage() {
     supabase
       .from("feeds")
       .select(
-        "id, status, extracted, confidence, not_an_event, applied_at, error, created_at",
+        "id, status, extracted, confidence, not_music_related, applied_at, error, created_at",
       )
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
@@ -40,7 +40,7 @@ export default async function FeedsPage() {
     | "status"
     | "extracted"
     | "confidence"
-    | "not_an_event"
+    | "not_music_related"
     | "applied_at"
     | "error"
     | "created_at"
@@ -53,7 +53,7 @@ export default async function FeedsPage() {
     (feed) =>
       feed.status === "done" &&
       !feed.applied_at &&
-      !feed.not_an_event &&
+      !feed.not_music_related &&
       feed.extracted,
   );
   const history = feeds.filter((feed) => !awaitingReview.includes(feed));
@@ -61,10 +61,8 @@ export default async function FeedsPage() {
   return (
     <div className="space-y-10">
       <section>
-        <SectionHeading
-          hint="Screenshots are read once to work out which artists and genres you're into. The image itself is not stored."
-        >
-          Add a feed
+        <SectionHeading hint="Screenshot whatever you're already listening to. likelylist reads the artist and song names and uses them to weight your digest.">
+          Feed it your music
         </SectionHeading>
         <FeedUploader />
         <p className="mt-3 text-xs text-faint">
@@ -93,7 +91,7 @@ export default async function FeedsPage() {
         <SectionHeading>History</SectionHeading>
         {history.length === 0 ? (
           <EmptyState title="nothing yet">
-            Paste your first show poster above.
+            Open Spotify, screenshot your home screen, and paste it above.
           </EmptyState>
         ) : (
           <Card className="divide-y divide-border">
@@ -105,7 +103,7 @@ export default async function FeedsPage() {
                 <div className="flex items-center gap-2">
                   <PixelDot
                     size={6}
-                    color={statusColor(feed.status, feed.not_an_event)}
+                    color={statusColor(feed.status, feed.not_music_related)}
                   />
                   <span className="text-muted">
                     {new Intl.DateTimeFormat("en-US", {
@@ -116,9 +114,7 @@ export default async function FeedsPage() {
                       minute: "2-digit",
                     }).format(new Date(feed.created_at))}
                   </span>
-                  <span className="text-text">
-                    {describe(feed)}
-                  </span>
+                  <span className="text-text">{describe(feed)}</span>
                 </div>
                 {feed.error ? (
                   <span className="font-mono text-xs text-danger">
@@ -132,32 +128,34 @@ export default async function FeedsPage() {
       </section>
 
       <Notice>
-        Flyer reading is imperfect and always shown to you before it changes
-        anything. Text inside an image is treated as content to transcribe, never
-        as an instruction — so a screenshot cannot tell likelylist what to do.
+        Reading small text off a screenshot is imperfect, so every result is shown
+        to you before it changes anything. The image itself is not kept — it is read
+        once and dropped. Text inside an image is treated strictly as content to
+        transcribe, never as an instruction, so a screenshot cannot tell likelylist
+        what to do.
       </Notice>
     </div>
   );
 }
 
-function statusColor(status: Feed["status"], notAnEvent: boolean): string {
+function statusColor(status: Feed["status"], notMusicRelated: boolean): string {
   if (status === "failed") return "var(--danger)";
-  if (notAnEvent) return "var(--faint)";
+  if (notMusicRelated) return "var(--faint)";
   if (status === "done") return "var(--pixel-1)";
   return "var(--pixel-3)";
 }
 
 function describe(feed: {
   status: Feed["status"];
-  not_an_event: boolean;
+  not_music_related: boolean;
   applied_at: string | null;
   extracted: Feed["extracted"];
 }): string {
   if (feed.status === "failed") return "Could not be read";
   if (feed.status !== "done") return "Processing";
-  if (feed.not_an_event) return "Not a show flyer — nothing learned";
+  if (feed.not_music_related) return "Not music — nothing learned";
 
-  const count = feed.extracted?.artists.length ?? 0;
+  const count = feed.extracted?.artists?.length ?? 0;
   if (feed.applied_at) {
     return `Applied · ${count} artist${count === 1 ? "" : "s"}`;
   }

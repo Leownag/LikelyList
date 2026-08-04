@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { zodResponseFormat } from "openai/helpers/zod";
 
-import { FeedExtractionSchema, SCHEMA_NAME } from "./schema";
+import { FeedExtractionSchema, SCHEMA_NAME, describeSourceKind } from "./schema";
 
 /**
- * Guards the two properties the extraction correctness depends on. Both are
- * produced by the zod helper rather than written out by hand, so they need to be
- * asserted rather than assumed — a stray `.optional()` in schema.ts would
- * silently reintroduce hallucinated field values.
+ * Guards the two properties extraction correctness depends on. Both are produced
+ * by the zod helper rather than written out by hand, so they need asserting rather
+ * than assuming — a stray `.optional()` in schema.ts would silently reintroduce
+ * invented artist names.
  */
 
 type JsonSchemaNode = {
@@ -52,6 +52,34 @@ function eachObjectNode(
   for (const branch of node.anyOf ?? []) eachObjectNode(branch, defs, visit, seen);
 }
 
+/** A complete, minimal extraction of a music app screenshot. */
+function musicAppExtraction(overrides: Record<string, unknown> = {}) {
+  return {
+    not_music_related: false,
+    source_kind: "music_app",
+    artists: [
+      { name: "Turnstile", prominence: "primary", confidence: 0.95 },
+      { name: "Blood Orange", prominence: "mentioned", confidence: 0.7 },
+      { name: "Unclear", prominence: null, confidence: 0.3 },
+    ],
+    tracks: [
+      { title: "NEVER ENOUGH", artist: "Turnstile" },
+      { title: "A Song With No Artist Shown", artist: null },
+    ],
+    genres: ["hardcore"],
+    // Null for a music app screen, which is the usual case.
+    venue: null,
+    city: null,
+    state: null,
+    date: null,
+    time: null,
+    ticket_url: null,
+    raw_text: "Made For You · Your Top Songs",
+    overall_confidence: 0.9,
+    ...overrides,
+  };
+}
+
 test("the response format is strict", () => {
   assert.equal(format.type, "json_schema");
   assert.equal(format.json_schema.strict, true);
@@ -67,7 +95,6 @@ test("every property is required and no extra keys are allowed", () => {
     const properties = Object.keys(node.properties ?? {});
     const required = node.required ?? [];
 
-    // Strict mode's contract: every declared property must be required.
     assert.deepEqual(
       [...properties].sort(),
       [...required].sort(),
@@ -80,17 +107,15 @@ test("every property is required and no extra keys are allowed", () => {
     );
   });
 
-  // Root object plus the artist object.
-  assert.ok(checked >= 2, `expected to inspect at least 2 objects, saw ${checked}`);
+  // Root, artist and track objects.
+  assert.ok(checked >= 3, `expected to inspect at least 3 objects, saw ${checked}`);
 });
 
 test("absent information is expressible as null, not as a missing key", () => {
   const properties = root.properties ?? {};
 
-  // These are the fields a flyer commonly omits. Each must accept null so the
-  // model has a correct way to say "not printed" while still satisfying
-  // `required`.
   for (const field of [
+    "source_kind",
     "venue",
     "city",
     "state",
@@ -102,70 +127,87 @@ test("absent information is expressible as null, not as a missing key", () => {
   ]) {
     const node = properties[field];
     assert.ok(node, `${field} should be present in the schema`);
-    const accepted = JSON.stringify(node);
     assert.match(
-      accepted,
+      JSON.stringify(node),
       /null/,
-      `${field} must accept null so "not printed" is representable`,
+      `${field} must accept null so "not shown" is representable`,
     );
   }
 });
 
-test("the schema parses a fully-null extraction and rejects a truncated one", () => {
-  const allNull = {
-    not_an_event_poster: true,
-    artists: [],
-    venue: null,
-    city: null,
-    state: null,
-    date: null,
-    time: null,
-    genres: [],
-    ticket_url: null,
-    raw_text: null,
-    overall_confidence: null,
-  };
-  assert.doesNotThrow(() => FeedExtractionSchema.parse(allNull));
-
-  const missingVenue: Record<string, unknown> = { ...allNull };
-  delete missingVenue.venue;
-  assert.throws(() => FeedExtractionSchema.parse(missingVenue));
+test("a music app screenshot parses", () => {
+  assert.doesNotThrow(() => FeedExtractionSchema.parse(musicAppExtraction()));
 });
 
-test("artist roles are limited to the two we can actually justify", () => {
+test("a fully-null, nothing-found extraction parses", () => {
   assert.doesNotThrow(() =>
     FeedExtractionSchema.parse({
-      not_an_event_poster: false,
-      artists: [
-        { name: "Turnstile", role: "headliner", confidence: 0.9 },
-        { name: "Blood Orange", role: "support", confidence: 0.6 },
-        { name: "Unclear Act", role: null, confidence: 0.3 },
-      ],
-      venue: "Roadrunner",
-      city: "Boston",
-      state: "MA",
-      date: "2026-08-09",
-      time: "20:00",
-      genres: ["hardcore"],
-      ticket_url: null,
-      raw_text: "TURNSTILE",
-      overall_confidence: 0.8,
-    }),
-  );
-
-  assert.throws(() =>
-    FeedExtractionSchema.parse({
-      not_an_event_poster: false,
-      artists: [{ name: "X", role: "opener", confidence: null }],
+      not_music_related: true,
+      source_kind: null,
+      artists: [],
+      tracks: [],
+      genres: [],
       venue: null,
       city: null,
       state: null,
       date: null,
       time: null,
-      genres: [],
       ticket_url: null,
       raw_text: null,
       overall_confidence: null,
     }),
   );
+});
+
+test("a truncated extraction is rejected", () => {
+  const missingTracks: Record<string, unknown> = musicAppExtraction();
+  delete missingTracks.tracks;
+  assert.throws(() => FeedExtractionSchema.parse(missingTracks));
+});
+
+test("prominence is limited to the two readings we can justify", () => {
+  // "headliner"/"support" was the old flyer-shaped vocabulary and must not come
+  // back — it means nothing on a playlist screen.
+  assert.throws(() =>
+    FeedExtractionSchema.parse(
+      musicAppExtraction({
+        artists: [{ name: "X", prominence: "headliner", confidence: null }],
+      }),
+    ),
+  );
+});
+
+test("source_kind is limited to the recognised shapes", () => {
+  for (const kind of ["music_app", "playlist", "concert_flyer", "other"]) {
+    assert.doesNotThrow(() =>
+      FeedExtractionSchema.parse(musicAppExtraction({ source_kind: kind })),
+    );
+  }
+  assert.throws(() =>
+    FeedExtractionSchema.parse(musicAppExtraction({ source_kind: "spotify" })),
+  );
+});
+
+test("a flyer still parses, with its flyer fields populated", () => {
+  assert.doesNotThrow(() =>
+    FeedExtractionSchema.parse(
+      musicAppExtraction({
+        source_kind: "concert_flyer",
+        tracks: [],
+        venue: "Roadrunner",
+        city: "Boston",
+        state: "MA",
+        date: "2026-08-09",
+        time: "20:00",
+        ticket_url: "https://example.com/tickets",
+      }),
+    ),
+  );
+});
+
+test("source kinds have readable descriptions, including the unknown case", () => {
+  assert.equal(describeSourceKind("music_app"), "a music app screen");
+  assert.equal(describeSourceKind("playlist"), "a playlist or song list");
+  assert.equal(describeSourceKind("concert_flyer"), "a show flyer");
+  assert.equal(describeSourceKind(null), "an image");
 });

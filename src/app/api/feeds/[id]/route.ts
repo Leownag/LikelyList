@@ -10,10 +10,12 @@ const BodySchema = z.object({
     .array(
       z.object({
         name: z.string().min(1).max(200),
-        role: z.enum(["headliner", "support"]).nullable(),
+        prominence: z.enum(["primary", "mentioned"]).nullable(),
       }),
     )
-    .max(50),
+    // A music app screen can legitimately show a lot of names — a top-artists
+    // page or a long playlist — so this is higher than a flyer would need.
+    .max(120),
   printedGenres: z.array(z.string().max(80)).max(20).default([]),
 });
 
@@ -39,9 +41,17 @@ export async function PATCH(
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await request.json());
-  } catch {
+  } catch (error) {
+    // Report the actual problem. A top-artists screen can carry a lot of names,
+    // and "send the confirmed artists" told the user nothing about which limit
+    // they had hit.
+    const issue = error instanceof z.ZodError ? error.issues[0] : undefined;
     return NextResponse.json(
-      { error: "Send the confirmed artists and genres." },
+      {
+        error: issue
+          ? `${issue.path.join(".") || "request"}: ${issue.message}`
+          : "Send the confirmed artists and genres.",
+      },
       { status: 400 },
     );
   }

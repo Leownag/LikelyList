@@ -33,7 +33,7 @@ export default async function OverviewPage() {
         .order("weight", { ascending: false }),
       supabase
         .from("feeds")
-        .select("id, status, not_an_event, applied_at", { count: "exact" })
+        .select("id, status, not_music_related, applied_at", { count: "exact" })
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(5),
@@ -74,7 +74,7 @@ export default async function OverviewPage() {
 
   const feedCount = feedsResult.count ?? 0;
   const pendingFeeds = (feedsResult.data ?? []).filter(
-    (feed) => feed.status === "done" && !feed.applied_at && !feed.not_an_event,
+    (feed) => feed.status === "done" && !feed.applied_at && !feed.not_music_related,
   ).length;
 
   const nextSend = nextWeekdayAt(

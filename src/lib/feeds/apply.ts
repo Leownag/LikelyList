@@ -22,11 +22,37 @@ import type { Genre } from "@/lib/db";
  * A feed-derived genre is only ever *inserted* when the user has no row for that
  * genre at all. An existing row — including a zero-weight opt-out — is left
  * untouched, so an explicit "not this" survives any number of later flyers.
+ *
+ * Sized for the real input. A "top artists" screen or a long playlist routinely
+ * yields dozens of names, so two things are bounded here:
+ *
+ *   - Ticketmaster resolution is capped and prioritised. It is throttled to 5
+ *     requests a second and shares a 5000/day budget with the weekly digest, so
+ *     resolving 50 names serially would make the user wait a quarter of a minute
+ *     and spend 1% of the day's quota on one screenshot.
+ *   - Preference writes are batched. The first version did a SELECT and an
+ *     UPDATE per artist; 50 artists meant 100 sequential round trips.
  */
+
+/** Artists kept from one screenshot. Beyond this, the tail adds noise. */
+const MAX_ARTISTS_PER_FEED = 40;
+
+/**
+ * How many artists get a Ticketmaster lookup, in prominence order.
+ *
+ * Only used to infer genres, and the printed-genre signal covers much of that
+ * anyway — so the marginal value of the 13th lookup is low and its cost is real.
+ */
+const MAX_TM_LOOKUPS_PER_FEED = 12;
 
 export type ConfirmedArtist = {
   name: string;
-  role: "headliner" | "support" | null;
+  /**
+   * How central the act was on the screenshot. See lib/vision/schema.ts —
+   * "primary" means presented as an artist in its own right, "mentioned" means it
+   * only appeared as the performer of a listed track.
+   */
+  prominence: "primary" | "mentioned" | null;
 };
 
 export type ApplyInput = {
@@ -42,7 +68,9 @@ export type ApplyResult = {
   artistsLearned: number;
   genresAdded: string[];
   artistsResolved: number;
-  /** Set when Ticketmaster lookup was skipped or failed; not fatal. */
+  /** How many names were discarded by MAX_ARTISTS_PER_FEED. */
+  droppedForCap: number;
+  /** Set when Ticketmaster lookup was capped, skipped or failed; not fatal. */
   warning?: string;
 };
 
@@ -52,7 +80,13 @@ export async function applyFeed(
 ): Promise<ApplyResult> {
   const { userId, feedId, artists, printedGenres } = input;
 
-  const deduped = dedupeArtists(artists);
+  const allDeduped = dedupeArtists(artists);
+  // Truncated after deduping and sorting so the cap keeps the *most prominent*
+  // names rather than whichever the model happened to list first.
+  const deduped = allDeduped
+    .sort((a, b) => prominenceRank(a.prominence) - prominenceRank(b.prominence))
+    .slice(0, MAX_ARTISTS_PER_FEED);
+  const droppedForCap = allDeduped.length - deduped.length;
 
   const { data: genreRows } = await supabase
     .from("genres")
@@ -84,7 +118,12 @@ export async function applyFeed(
     try {
       const client = createTicketmasterClient(input.ticketmasterApiKey);
 
-      for (const artist of deduped) {
+      // Bounded, and in prominence order. `deduped` is already sorted, so this
+      // spends the budget on the acts the screenshot actually featured.
+      const toResolve = deduped.slice(0, MAX_TM_LOOKUPS_PER_FEED);
+      const artistRows: ReturnType<typeof toArtistRow>[] = [];
+
+      for (const artist of toResolve) {
         const attraction = await findAttractionByName(client, artist.name);
         if (!attraction) continue;
 
@@ -100,12 +139,20 @@ export async function applyFeed(
           }
         }
 
-        // Cache the artist so the weekly enrichment does not have to look it up
-        // again, and so the YouTube search budget is spent at most once per
-        // artist ever.
+        artistRows.push(toArtistRow(attraction));
+      }
+
+      // One upsert instead of one per artist. Caches them so the weekly
+      // enrichment does not look them up again, and so the YouTube search budget
+      // is spent at most once per artist ever.
+      if (artistRows.length > 0) {
         await supabase
           .from("artists")
-          .upsert(toArtistRow(attraction), { onConflict: "tm_attraction_id" });
+          .upsert(artistRows, { onConflict: "tm_attraction_id" });
+      }
+
+      if (deduped.length > toResolve.length) {
+        warning = `Genres were inferred from the first ${toResolve.length} artists; the rest were saved without a Ticketmaster lookup.`;
       }
     } catch (error) {
       // A Ticketmaster outage should not lose the user's confirmation; the
@@ -126,44 +173,53 @@ export async function applyFeed(
         feed_id: feedId,
         name: artist.name,
         normalized_name: artist.normalized,
-        role: artist.role,
+        prominence: artist.prominence,
         tm_attraction_id: artist.tmAttractionId ?? null,
       })),
       { onConflict: "feed_id,normalized_name" },
     );
   }
 
-  // Artist preferences. A headliner on a flyer someone saved is a stronger
-  // signal than a name buried in the support slot.
-  for (const artist of deduped) {
-    const increment = artist.role === "support" ? 0.5 : 1;
-
-    const { data: existing } = await supabase
+  // Artist preferences. "I follow this artist" is a stronger statement of taste
+  // than "one of their songs is in a playlist I screenshotted", so a name that
+  // only turned up beside a track counts for less.
+  //
+  // One read and one write for the whole set. The previous shape was a SELECT and
+  // an UPDATE per artist, which on a 40-name screenshot meant 80 sequential round
+  // trips with the user waiting on the response.
+  if (deduped.length > 0) {
+    const { data: existingRows } = await supabase
       .from("artist_prefs")
-      .select("id, score")
+      .select("normalized_name, score")
       .eq("user_id", userId)
-      .eq("normalized_name", artist.normalized)
-      .maybeSingle();
+      .in(
+        "normalized_name",
+        deduped.map((artist) => artist.normalized),
+      );
 
-    if (existing) {
-      await supabase
-        .from("artist_prefs")
-        .update({
-          score: Number(existing.score) + increment,
-          last_seen_at: new Date().toISOString(),
-          tm_attraction_id: artist.tmAttractionId ?? null,
-        })
-        .eq("id", existing.id);
-    } else {
-      await supabase.from("artist_prefs").insert({
+    const scoreByName = new Map(
+      ((existingRows ?? []) as { normalized_name: string; score: number }[]).map(
+        (row) => [row.normalized_name, Number(row.score)],
+      ),
+    );
+
+    const now = new Date().toISOString();
+    await supabase.from("artist_prefs").upsert(
+      deduped.map((artist) => ({
         user_id: userId,
         name: artist.name,
         normalized_name: artist.normalized,
         tm_attraction_id: artist.tmAttractionId ?? null,
-        score: increment,
-        source: "feed",
-      });
-    }
+        // The increment is computed here because a Postgres upsert cannot do
+        // `score = score + n` through PostgREST.
+        score:
+          (scoreByName.get(artist.normalized) ?? 0) +
+          PROMINENCE_WEIGHT[artist.prominence ?? "unknown"],
+        source: "feed" as const,
+        last_seen_at: now,
+      })),
+      { onConflict: "user_id,normalized_name" },
+    );
   }
 
   // Genre preferences — insert only, never update.
@@ -210,8 +266,32 @@ export async function applyFeed(
     artistsLearned: deduped.length,
     genresAdded,
     artistsResolved,
-    warning,
+    droppedForCap,
+    warning:
+      droppedForCap > 0
+        ? [
+            `Kept the ${deduped.length} most prominent artists and skipped ${droppedForCap} more from that screenshot.`,
+            warning,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : warning,
   };
+}
+
+/** How much one appearance moves an artist's score. */
+const PROMINENCE_WEIGHT: Record<string, number> = {
+  primary: 1,
+  mentioned: 0.4,
+  // The model could not tell. Between the two, leaning towards "meaningful".
+  unknown: 0.7,
+};
+
+/** Sort key: primary first, then unknown, then mentioned. */
+function prominenceRank(prominence: ConfirmedArtist["prominence"]): number {
+  if (prominence === "primary") return 0;
+  if (prominence === null) return 1;
+  return 2;
 }
 
 type WorkingArtist = ConfirmedArtist & {
@@ -236,11 +316,13 @@ function dedupeArtists(artists: ConfirmedArtist[]): WorkingArtist[] {
 
     const existing = byName.get(normalized);
     if (!existing) {
-      byName.set(normalized, { name, role: artist.role, normalized });
+      byName.set(normalized, { name, prominence: artist.prominence, normalized });
       continue;
     }
-    if (existing.role !== "headliner" && artist.role === "headliner") {
-      existing.role = "headliner";
+    // An act that appears both as an artist tile and beside a track keeps the
+    // stronger reading.
+    if (existing.prominence !== "primary" && artist.prominence === "primary") {
+      existing.prominence = "primary";
     }
   }
 

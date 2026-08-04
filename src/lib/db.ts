@@ -69,19 +69,33 @@ export type ArtistPref = {
   last_seen_at: string;
 };
 
-/** Shape the vision extractor is constrained to produce. See lib/vision. */
+/**
+ * Shape the vision extractor is constrained to produce. See lib/vision/schema.ts,
+ * which is the single source of truth — this mirrors it for database reads.
+ *
+ * The usual input is a music app screenshot, not a concert flyer, so the flyer
+ * fields (venue, city, date, time, ticket_url) are null in the common case.
+ */
+export type FeedSourceKind = "music_app" | "playlist" | "concert_flyer" | "other";
+
 export type FeedExtraction = {
-  artists: { name: string; role: "headliner" | "support" | null; confidence: number | null }[];
+  not_music_related: boolean;
+  source_kind: FeedSourceKind | null;
+  artists: {
+    name: string;
+    prominence: "primary" | "mentioned" | null;
+    confidence: number | null;
+  }[];
+  tracks: { title: string; artist: string | null }[];
+  genres: string[];
   venue: string | null;
   city: string | null;
   state: string | null;
   date: string | null;
   time: string | null;
-  genres: string[];
   ticket_url: string | null;
   raw_text: string | null;
   overall_confidence: number | null;
-  not_an_event_poster: boolean;
 };
 
 export type Feed = {
@@ -92,7 +106,7 @@ export type Feed = {
   model: string | null;
   extracted: FeedExtraction | null;
   confidence: number | null;
-  not_an_event: boolean;
+  not_music_related: boolean;
   applied_at: string | null;
   error: string | null;
   created_at: string;
@@ -103,7 +117,7 @@ export type FeedArtist = {
   feed_id: string;
   name: string;
   normalized_name: string;
-  role: string | null;
+  prominence: string | null;
   tm_attraction_id: string | null;
   tm_genre_id: string | null;
 };

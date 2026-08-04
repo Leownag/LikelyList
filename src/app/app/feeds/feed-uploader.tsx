@@ -129,7 +129,7 @@ export function FeedUploader() {
             <p className="mt-5 text-sm text-muted">
               {stage.kind === "preparing"
                 ? "Preparing the image…"
-                : "Reading the flyer…"}
+                : "Reading the artists…"}
             </p>
           ) : (
             <>
@@ -145,8 +145,10 @@ export function FeedUploader() {
                 .
               </p>
               <p className="mt-2 text-xs text-faint">
-                Show posters, Instagram stories, Spotify screenshots. The image
-                is read once and not kept.
+                Your Spotify or Apple Music home screen, your liked songs, a
+                playlist, your top artists — anything that shows who you actually
+                listen to. Show flyers work too. The image is read once and not
+                kept.
               </p>
             </>
           )}
