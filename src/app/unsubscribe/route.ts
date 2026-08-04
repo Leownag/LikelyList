@@ -2,6 +2,8 @@ import { type NextRequest } from "next/server";
 import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyToken } from "@/lib/tokens";
+import { escapeHtml, standalonePage } from "@/lib/standalone-page";
+import { i18nFromRequest, type RequestI18n } from "@/lib/i18n/request";
 
 /**
  * One-click unsubscribe (RFC 8058).
@@ -17,19 +19,22 @@ import { verifyToken } from "@/lib/tokens";
  *          URL in a message with GET, so acting on GET would silently
  *          unsubscribe people who never clicked anything.
  *
- * Deliberately self-contained: no session, no cookies, no React, and excluded
- * from the proxy matcher. A mail client's POST arrives with nothing attached, and
- * this endpoint must be the least breakable thing in the app.
+ * Deliberately self-contained: no session, no cookies, no React. A mail client's
+ * POST arrives with nothing attached, and this endpoint must be the least
+ * breakable thing in the app. Localised from `Accept-Language`, because someone who
+ * wants out should not have to read English to manage it.
+ *
+ * Note there is no expiry on these tokens, unlike the preview links. Someone must
+ * always be able to get out, including from an email they find a year later.
  */
 
 export async function POST(request: NextRequest) {
   const env = readEnv();
+  const i18n = i18nFromRequest(request);
   const token = tokenFrom(request);
 
   const verified = await verifyToken(env.unsubscribeHmacSecret, "unsubscribe", token);
-  if (!verified) {
-    return html(page("That link isn't valid", "It may have already been used, or the link was truncated by your mail client."), 400);
-  }
+  if (!verified) return invalid(env.siteUrl, i18n);
 
   const supabase = createAdminClient(env);
   const { error } = await supabase
@@ -39,42 +44,70 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     return html(
-      page("Something went wrong", "We couldn't update your subscription. Please try again in a moment."),
+      standalonePage({
+        title: i18n.t("error.generic.title"),
+        body: i18n.t("error.generic.body"),
+        ...chrome(env.siteUrl, i18n),
+      }),
       500,
     );
   }
 
   return html(
-    page(
-      "Unsubscribed",
-      "You won't get the weekly email any more. Your account and everything you've followed are untouched — you can turn the digest back on from Settings whenever you like.",
-      `${env.siteUrl}/app/settings`,
-      "Open settings",
-    ),
+    standalonePage({
+      title: i18n.t("unsubscribe.done.title"),
+      body: i18n.t("unsubscribe.done.body"),
+      linkHref: `${env.siteUrl}/app/settings`,
+      linkLabel: i18n.t("unsubscribe.done.link"),
+      ...chrome(env.siteUrl, i18n),
+    }),
   );
 }
 
 export async function GET(request: NextRequest) {
   const env = readEnv();
+  const i18n = i18nFromRequest(request);
   const token = tokenFrom(request);
 
   const verified = await verifyToken(env.unsubscribeHmacSecret, "unsubscribe", token);
-  if (!verified) {
-    return html(page("That link isn't valid", "It may have already been used, or the link was truncated by your mail client."), 400);
-  }
+  if (!verified) return invalid(env.siteUrl, i18n);
 
-  // A form, not an automatic action: see the note above about link scanners.
+  // A form, not an automatic action: see the note above about link scanners. The
+  // language is carried through so the POST renders in the same one.
+  const action = `/unsubscribe?t=${escapeHtml(token ?? "")}&lang=${escapeHtml(i18n.locale)}`;
+
   return html(
-    page(
-      "Stop the weekly email?",
-      "One click and the Friday digest stops. Your account, cities, genres and feeds all stay as they are.",
-      undefined,
-      undefined,
-      `<form method="post" action="/unsubscribe?t=${escapeHtml(token ?? "")}">
-         <button type="submit" class="btn">Unsubscribe</button>
-       </form>`,
-    ),
+    standalonePage({
+      title: i18n.t("unsubscribe.confirm.title"),
+      body: i18n.t("unsubscribe.confirm.body"),
+      extra: `<form method="post" action="${action}">
+                <button type="submit" class="btn">${escapeHtml(
+                  i18n.t("unsubscribe.confirm.action"),
+                )}</button>
+              </form>`,
+      ...chrome(env.siteUrl, i18n),
+    }),
   );
+}
+
+function invalid(siteUrl: string, i18n: RequestI18n): Response {
+  return html(
+    standalonePage({
+      title: i18n.t("link.invalid.title"),
+      body: i18n.t("link.invalid.body"),
+      ...chrome(siteUrl, i18n),
+    }),
+    400,
+  );
+}
+
+/** The bits every page on this route shares. */
+function chrome(siteUrl: string, i18n: RequestI18n) {
+  return {
+    siteUrl,
+    htmlLang: i18n.htmlLang,
+    privacyLabel: i18n.t("common.privacy"),
+  };
 }
 
 function tokenFrom(request: NextRequest): string | null {
@@ -86,82 +119,11 @@ function html(body: string, status = 200): Response {
     status,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      // Nothing here should be cached by an intermediary.
+      // Nothing here should be cached by an intermediary. `Vary` matters because
+      // the body depends on the request's language.
       "Cache-Control": "no-store",
+      Vary: "Accept-Language",
       "X-Robots-Tag": "noindex, nofollow",
     },
   });
-}
-
-/** Minimal standalone page, styled to match the app without importing it. */
-function page(
-  title: string,
-  body: string,
-  linkHref?: string,
-  linkLabel?: string,
-  extra?: string,
-): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>${escapeHtml(title)} — likelylist</title>
-<style>
-  :root { color-scheme: dark; }
-  * { border-radius: 0 !important; box-sizing: border-box; }
-  body {
-    margin: 0; min-height: 100vh; display: flex; align-items: center;
-    justify-content: center; padding: 24px;
-    background: #0a0a0a; color: #fafafa;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  }
-  main { max-width: 460px; }
-  .mark {
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 14px; letter-spacing: 0.22em; text-transform: uppercase;
-    color: #fafafa;
-  }
-  .blocks { display: flex; gap: 2px; margin: 20px 0 24px; }
-  .blocks i { width: 8px; height: 8px; display: block; }
-  h1 { font-size: 22px; margin: 0 0 12px; letter-spacing: -0.01em; }
-  p { font-size: 14px; line-height: 1.65; color: #a1a1aa; margin: 0 0 20px; }
-  .btn {
-    display: inline-block; padding: 10px 18px; border: 0; cursor: pointer;
-    background: #e4ff3f; color: #0a0a0a; font: inherit; font-size: 14px;
-    font-weight: 600; text-decoration: none;
-  }
-  .btn:hover { background: #ffffff; }
-  a.quiet { color: #a1a1aa; font-size: 13px; }
-</style>
-</head>
-<body>
-  <main>
-    <div class="mark">likelylist</div>
-    <div class="blocks" aria-hidden="true">
-      <i style="background:#e4ff3f"></i><i style="background:#ff4d6d"></i>
-      <i style="background:#4dd8ff"></i><i style="background:#262626"></i>
-      <i style="background:#e4ff3f"></i>
-    </div>
-    <h1>${escapeHtml(title)}</h1>
-    <p>${escapeHtml(body)}</p>
-    ${extra ?? ""}
-    ${
-      linkHref && linkLabel
-        ? `<p><a class="quiet" href="${escapeHtml(linkHref)}">${escapeHtml(linkLabel)}</a></p>`
-        : ""
-    }
-  </main>
-</body>
-</html>`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
