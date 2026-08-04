@@ -68,6 +68,7 @@ you and the zone flips to **Active**. Nothing below works until then.
 | Purpose | Record |
 | --- | --- |
 | The app | Added for you by Workers → *Settings* → *Domains & Routes* → *Add custom domain* (`likelylist.tech`, and `www` if you want it) |
+| Inbound unsubscribe | Cloudflare **Email Routing** → route `unsubscribe@likelylist.tech` to your real inbox (free). This is what `EMAIL_UNSUBSCRIBE_MAILTO` points at |
 | Resend SPF | `TXT` on `mail.likelylist.tech`, value from Resend |
 | Resend DKIM | Record from Resend on `resend._domainkey.mail.likelylist.tech` |
 | DMARC | `TXT` on `_dmarc.mail.likelylist.tech`, start at `v=DMARC1; p=none; rua=mailto:you@likelylist.tech` |
@@ -128,10 +129,18 @@ them one at a time, in order:
 1. `0001_init.sql` — tables, RLS policies, the `auth.users` → `profiles` trigger
 2. `0002_storage.sql` — the private `feeds` bucket and its ownership policies
 3. `0003_queue.sql` — atomic queue claiming, lease recovery, cache purging
-4. `0004_function_grants.sql` — **revokes the SECURITY DEFINER functions from
-   `anon` / `authenticated`.** Not optional: without it any signed-in user can
-   call them over PostgREST RPC and suppress everyone's digest or exhaust another
-   user's quota.
+4. `0004_function_grants.sql` — revokes the SECURITY DEFINER functions from
+   `anon`/`authenticated`. **Not optional.** PostgreSQL grants EXECUTE on new
+   functions to PUBLIC, so without this any signed-in user could call
+   `rpc/claim_digest_jobs` and permanently suppress every subscriber's email, or
+   `rpc/bump_usage` to exhaust someone else's quota.
+5. `0005_profile_hardening.sql` — restricts which `profiles` columns a user may
+   write. Also not optional: `profiles.email` is the digest's delivery address, so
+   a writable copy of it turns this into a relay for unsolicited mail.
+6. `0006_feeds_are_music_screenshots.sql` — renames `feeds.not_an_event` and
+   `feed_artists.role`, which described the flyer-only version of the feature.
+7. `0007_pending_subscriptions.sql` — the double opt-in waiting room for
+   signups that arrive without an account.
 
 Run them separately rather than as one paste, so a failure names the file that
 failed. They are one-shot scripts — `create table` / `create policy` without
@@ -197,6 +206,8 @@ npm run preview
 | `npm run dev` | Next dev server on :3000 |
 | `npm run preview` | Build and serve in the local Workers runtime |
 | `npm run deploy` | Build and deploy to Cloudflare |
+| `npm run preflight` | **The API viability check.** One cheap real request per service; reports which credentials actually work and what to fix |
+| `npm run security:check` | Live RLS and column-privilege assertions against the real database, using a throwaway account it creates and deletes. Checks both directions — that a user cannot rewrite their delivery address, *and* that they can still change their timezone |
 | `npm test` | Unit tests (`node:test` via `tsx`) |
 | `npm run preview:email` | Render the digest email to `email-preview.html` with sample data, and report its size against Gmail's clip threshold |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -265,6 +276,25 @@ curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+8+*+*+5"
 
 ## Verifying it end to end
 
+Start here, as soon as the keys exist:
+
+```bash
+npm run preflight
+```
+
+It makes one deliberately cheap real request per service and tells you which
+credentials work rather than which are merely set — including whether the address
+in `EMAIL_FROM` is on a domain Resend has actually verified, which is the failure
+that otherwise only shows up when real subscribers get nothing. It never sends
+email, and it avoids YouTube's `search.list` because that has its own hard ceiling
+of 100 calls a day for the whole project.
+
+It also asserts two database facts that are easy to forget: that every migration
+ran, and that `rpc/claim_digest_jobs` and `rpc/bump_global_usage` are no
+longer callable with the public anon key.
+
+Then, by hand:
+
 - **Auth** — sign up once with email/password and once with Google; both should
   produce a `profiles` row (created by a database trigger, not by app code).
 - **Genres** — after `npm run seed:genres`, check `genres` holds real Ticketmaster
@@ -289,6 +319,16 @@ curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+8+*+*+5"
   not release its job during the US morning.
 - **Failure recovery** — break `RESEND_API_KEY` temporarily and confirm the next
   drain pass retries that job rather than the whole batch stalling.
+- **Column lockdown** — signed in, try to change your own email directly against
+  PostgREST. It must be refused:
+  ```bash
+  curl -X PATCH "$SUPABASE_URL/rest/v1/profiles?id=eq.$USER_ID" \
+    -H "apikey: $ANON_KEY" -H "Authorization: Bearer $USER_JWT" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"someone-else@example.com"}'
+  ```
+- **Open redirect** — `/auth/callback?next=/\evil.com` must land on `/app`, not on
+  another origin. Covered by `src/lib/safe-redirect.test.ts` as well.
 
 What has been verified so far without live credentials: the full unit suite
 (headliner inference, timezone/DST arithmetic, the strict extraction schema, token
@@ -334,7 +374,34 @@ drops to the Workers free plan and the send breaks.
 
 **Cron timing drifts within the hour** (see above).
 
+**Genre order is hand-ranked, not measured.** Ticketmaster exposes no popularity
+or listing-count signal, and alphabetical order buried Rock, Pop and Hip-Hop below
+Alternative and Blues. `src/lib/ticketmaster/genre-ranking.ts` is therefore a
+curated list — a judgement call about US live inventory, stated plainly so nobody
+assumes it came from an API. Anything not on the list sorts alphabetically after
+everything that is, so a taxonomy change can never drop a genre from the picker.
+
+**No Content-Security-Policy beyond `frame-ancestors`.** A real CSP needs a
+nonce-based rollout verified against every page; shipping a guessed one breaks the
+app. The other standard headers are set in `next.config.ts`.
+
 **No Spotify artwork**, by choice (see Setup step 3).
+
+**The `mailto` unsubscribe form is off by default, on purpose.** There are three
+ways out of the list and they are not equally expensive:
+
+1. The link in the email body. Covers everyone, always on, nothing to run.
+2. `List-Unsubscribe` with the `https` one-click form. Gives Gmail its native
+   unsubscribe button. Always on, still nothing to run.
+3. `List-Unsubscribe` with the `mailto` form. The only one Outlook and iOS Mail
+   read, so it is what makes *their* native button appear — but it works by having
+   the mail client send an email, which means running an inbound mailbox.
+
+(3) is implemented — Cloudflare Email Routing forwards to the Worker's `email()`
+handler, which posts to `/api/inbound/unsubscribe` — but it stays dormant until
+`EMAIL_UNSUBSCRIBE_MAILTO` is set. Leaving it unset is the right call at low volume:
+those readers simply use the body link. Turn it on when subscriber numbers make the
+missing native button worth an extra moving part.
 
 **No open tracking.** Gmail's image proxy fetches every image when the message is
 delivered, before any human opens it, so open rates would be noise.
@@ -342,6 +409,36 @@ delivered, before any human opens it, so open rates would be noise.
 **Flyer reading is imperfect.** Every extraction is confirmed by the user before it
 touches a preference, and text inside an image is treated strictly as content to
 transcribe — never as an instruction — so a screenshot cannot direct the system.
+
+---
+
+## Launch checklist
+
+Ordered so nothing waits on something later in the list.
+
+- [ ] Cloudflare for Students active, `.edu` set as the **billing** email
+- [ ] Calendar reminder for **August 2027**: the waiver lapses and the send breaks
+- [ ] `likelylist.tech` nameservers pointed at Cloudflare, zone shows **Active**
+- [ ] DNSSEC disabled at Namecheap *before* the nameserver switch
+- [ ] Migrations `0001`–`0005` all applied
+- [ ] `npm run seed:cities` and `npm run seed:genres` run
+- [ ] Google OAuth redirect URI set to the Supabase callback; Google provider on
+- [ ] `mail.likelylist.tech` verified in Resend, SPF + DKIM + DMARC in Cloudflare
+      DNS, every CNAME set to **DNS only** (grey cloud)
+- [ ] `EMAIL_FROM` moved off `resend.dev`
+- [ ] All secrets pushed with `wrangler secret put`
+- [ ] ⚠️ **Build with production environment values, not `.env.local`.** `robots.txt`
+      and `sitemap.xml` are prerendered, so `NEXT_PUBLIC_SITE_URL` is baked in at
+      build time — building with the localhost value ships a sitemap pointing at
+      `http://localhost:3000`. `wrangler secret put` sets *runtime* values only
+- [ ] `npm run preflight` clean against production values
+- [ ] `npm run typecheck && npm run lint && npm test` clean
+- [ ] Test digest received, checked in Gmail for both `List-Unsubscribe` forms,
+      under 100 KB, readable with images off
+- [ ] One-click unsubscribe verified with a real `POST`
+- [ ] Workers custom domain bound; `/privacy` reachable; `/robots.txt` disallows
+      `/preview/` and `/unsubscribe`
+- [ ] Cron triggers visible in the Cloudflare dashboard after deploy
 
 ---
 
@@ -359,8 +456,13 @@ src/
     preview/digest/[token]/  Web version of the email, opened from an inbox
     unsubscribe/             RFC 8058 one-click endpoint, standalone by design
     api/                     feeds, digest preview, cron
+    privacy/                 Privacy policy — required by Ticketmaster's terms
+    robots.ts sitemap.ts     Keep token-bearing URLs out of search indexes
   lib/
-    ticketmaster/            Client, classifications, events, headliner inference
+    safe-redirect.ts         Same-origin redirect validation (open-redirect guard)
+    site-url.ts              Origin only, for pages that must not need credentials
+    ticketmaster/            Client, classifications, events, headliner inference,
+                             genre-ranking (curated popularity order)
     vision/                  Strict extraction schema, OpenAI provider, preprocessing
     digest/                  plan → build → render → send, and the queue drainer
     email/                   react-email template and size-budgeted renderer
