@@ -12,8 +12,8 @@
 --
 -- lib/digest/build.ts reads it and lib/digest/send.ts sends to it, so a user who
 -- can rewrite it can make this service mail an arbitrary third party every week,
--- from our own verified sending domain. That is an unsolicited-mail vector, and
--- the spam complaints land on mail.likelylist.tech's reputation.
+-- from the project's verified sending domain. That is an unsolicited-mail vector,
+-- and the spam complaints land on the sending subdomain's reputation.
 --
 -- Note the shape of the fix: a column-level REVOKE cannot subtract from a
 -- table-wide grant — in PostgreSQL, granting UPDATE on a table covers every

@@ -1,4 +1,4 @@
--- likely — initial schema
+-- likelylist — initial schema
 --
 -- Run this in the Supabase SQL editor (or `supabase db push` if you use the
 -- CLI). Everything a browser session can reach is behind RLS keyed on
@@ -112,7 +112,7 @@ create index subscriptions_user_idx on public.subscriptions (user_id);
 create index subscriptions_city_idx on public.subscriptions (city_id);
 
 -- Genre interest. `source` separates what the user explicitly asked for from
--- what we inferred off their feeds, so the UI can show the two differently and
+-- what was inferred from their feeds, so the UI can show the two differently and
 -- the user can always override an inference.
 create type public.pref_source as enum ('explicit', 'feed');
 
@@ -247,7 +247,7 @@ create table public.artists (
   youtube_channel_id          text,
   youtube_uploads_playlist_id text,
   youtube_video_id            text,
-  -- Set even when the lookup found nothing, so we never re-spend quota on a
+  -- Set even when the lookup found nothing, so quota is never re-spent on a
   -- miss. Nullable means "never looked".
   youtube_looked_up_at        timestamptz,
   refreshed_at                timestamptz not null default now()
@@ -262,7 +262,7 @@ create index artists_normalized_idx on public.artists (normalized_name);
 -- table is strictly a scratch buffer for the current send: rows carry an
 -- expires_at and the drainer purges them. It must never become an archive.
 --
--- Keyed per (city, event) because we fetch per city and one event can be
+-- Keyed per (city, event) because events are fetched per city and one can be
 -- relevant to more than one subscribed city.
 create table public.events_cache (
   city_id           bigint not null references public.cities (id) on delete cascade,
@@ -345,7 +345,7 @@ alter table public.digest_jobs enable row level security;
 -- ---------------------------------------------------------------------------
 
 -- Per-user daily counters. Currently guards feed uploads, which is what stops
--- one user from running up our OpenAI bill.
+-- one user from running up the project's OpenAI bill.
 create table public.usage_counters (
   user_id  uuid not null references public.profiles (id) on delete cascade,
   day      date not null,

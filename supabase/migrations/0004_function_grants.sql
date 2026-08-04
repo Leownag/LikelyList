@@ -1,11 +1,10 @@
 -- Lock down the SECURITY DEFINER functions.
 --
--- This closes a real hole, not a theoretical one. Postgres grants EXECUTE on new
--- functions to PUBLIC by default, and Supabase gives the `anon` and
--- `authenticated` roles USAGE on schema public — so every function added in the
--- earlier migrations was callable over PostgREST RPC by any signed-in user, with
--- the definer's privileges. Concretely, before this migration a logged-in user
--- could:
+-- Postgres grants EXECUTE on new functions to PUBLIC by default, and Supabase
+-- gives the `anon` and `authenticated` roles USAGE on schema public — so every
+-- function added in the earlier migrations was callable over PostgREST RPC by
+-- any signed-in user, with the definer's privileges. Concretely, before this
+-- migration a logged-in user could:
 --
 --   * rpc/claim_digest_jobs  -> lease every pending job, then let the lease lapse
 --                               and burn `attempts` until they hit the limit,

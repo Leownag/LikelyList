@@ -17,53 +17,136 @@ Supabase for Postgres + Auth + Storage, Resend + `react-email` for delivery.
 
 ---
 
+## Architecture
+
+### One Worker, four ways in
+
+The whole project deploys as a single Cloudflare Worker. `@opennextjs/cloudflare`
+compiles the Next.js app into `.open-next/worker.js`, which exports only `fetch`;
+`worker.ts` wraps it and adds the handlers a Next build cannot produce:
+
+| Trigger | Handler | Reaches |
+| --- | --- | --- |
+| HTTP request | `fetch` | any route in `src/app/` |
+| Cron (`0 8 * * 5`, `*/5 * * * *`) | `scheduled` | `/api/cron/digest` |
+| Inbound email (Email Routing) | `email` | `/api/inbound/unsubscribe` |
+
+The two extra handlers deliberately import no application code. They construct a
+`Request` and call the generated fetch handler in-process, so a cron pass and a
+manual `curl` run exactly the same route, and the app is never bundled twice.
+
+### Layers
+
+```
+src/app/      routes — React Server Components, route handlers, server actions
+src/lib/      domain logic — no Next.js imports, unit-testable in isolation
+src/components/  shared UI
+```
+
+The rule that keeps this workable: **routes hold no logic**. A route reads the
+request, calls one `lib/` function, and shapes a response. Everything worth
+testing therefore lives in `lib/` and is reachable from `node:test` without a
+server — which is why the suite runs in about a second with no fixtures.
+
+### Database access has two flavours, and the distinction is load-bearing
+
+| Client | Key | Used by | RLS |
+| --- | --- | --- | --- |
+| `lib/supabase/server.ts` | anon key + user session | signed-in pages and actions | **enforced** |
+| `lib/supabase/admin.ts` | service role key | the digest pipeline, public endpoints | bypassed |
+
+Anything acting for a signed-in user goes through the request-scoped client, so
+Postgres enforces ownership rather than application code remembering to. The
+service-role client is confined to code paths with no user session at all. The
+migrations assume this split: `0004` and `0005` revoke from `anon`/`authenticated`
+exactly what only the pipeline should be able to do.
+
+### The weekly pipeline
+
+`lib/digest/` is four stages plus a drainer, and they are separate because they
+fail differently:
+
+```
+digest/plan.ts    once a week: query Ticketmaster per distinct city, cache
+                  events, queue one job per subscriber with its own send_after
+digest/drain.ts   every 5 min: claim due jobs atomically, recover expired leases
+digest/build.ts   per subscriber: score cached events against their cities,
+                  genres and artist preferences
+email/render.tsx  react-email → HTML + plain text, measured against Gmail's
+                  102 KB clip threshold
+digest/send.ts    Resend, with both List-Unsubscribe forms
+```
+
+### Preferences come from two directions
+
+Explicit picks (`app/app/subscriptions/`) write straight to `subscriptions` and
+`genre_prefs`. Inferred picks come from screenshots: `api/feeds` sends the image
+to `lib/vision/` under a strict schema, the user confirms the extraction, and
+`lib/feeds/apply.ts` merges it — inserting a genre only where the user has no row
+at all, so an explicit opt-out always survives a later screenshot.
+
+### Public surface
+
+`/`, `/explore`, `/privacy` and the subscribe flow need no account. Because they
+spend Ticketmaster quota and send mail, each carries its own limit: a daily budget
+plus a per-visitor hourly cap keyed on a truncated HMAC of the caller's IP, and
+double opt-in before any address enters the send list.
+
+Links arriving from an inbox — unsubscribe, subscribe-confirm, digest preview —
+carry an HMAC token instead of a session (`lib/tokens.ts`), because a mail client's
+request has no cookies. The first two render through `lib/standalone-page.ts`: no
+React, no layout, no session, translated from `Accept-Language`. They are the
+pages that must be the least breakable things in the app.
+
+### Cross-cutting
+
+- `lib/errors.ts` + `lib/api-error.ts` — routes throw `AppError`; one function
+  turns it into a response. Raw upstream detail is logged always, returned only in
+  dev mode (`lib/dev-mode.ts`, a cookie rather than a global flag).
+- `lib/safe-redirect.ts` — same-origin validation for any user-supplied redirect.
+- `lib/time.ts` — timezone and DST arithmetic, used by every scheduling decision.
+- `lib/env.ts` — one typed read of the environment, and the only place that
+  validates required variables. The few modules that read `process.env` directly
+  do so because they must work *without* credentials present:
+  `lib/site-url.ts` (origin only, for `robots.ts` / `sitemap.ts` / `/privacy`),
+  `lib/supabase/client.ts` and `server.ts` (public keys), and `lib/dev-mode.ts`.
+
+---
+
 ## Setup
 
 ### 1. Cloudflare
 
-The Workers **free** plan cannot run this project: it allows 10 ms of CPU and 50
-subrequests per invocation, and one send batch has to call Ticketmaster, YouTube,
-Resend and Supabase while rendering HTML.
+**Workers Paid is required.** The free plan allows 10 ms of CPU and 50 subrequests
+per invocation; one send batch has to call Ticketmaster, YouTube, Resend and
+Supabase while rendering HTML, so it does not fit. The paid plan raises those to
+30 s of CPU per request and 10,000 subrequests, which is ample — this workload
+stays far below the included allotments.
 
-[Cloudflare for Students](https://www.cloudflare.com/students/) waives the Workers
-Paid base fee for 12 months, which is exactly what is needed — it grants "up to 30
-seconds of CPU time per request", 10 M requests/month and 10,000 subrequests.
-Requirements: United States, 18+, a **verified `.edu` billing email**, and a
-payment method on file.
+### 2. Domain
 
-Two things to know:
+A registered domain is required, and its **DNS must be served by Cloudflare's
+nameservers** — a Workers custom domain does not work otherwise. The registration
+itself can stay wherever the domain was bought; only DNS has to move.
 
-- Usage above the base allotments is still billed. This project's volume is
-  nowhere near it.
-- **The waiver lasts 12 months.** When it lapses the account reverts to the free
-  plan and the weekly send breaks. Set a reminder.
+**a. Add the zone to Cloudflare.** Dashboard → *Add a site* → your domain → Free
+plan. Cloudflare scans the existing DNS and assigns two nameservers.
 
-### 2. Domain — `likelylist.tech`, registered at Namecheap
+**b. Review the imported records before switching.** A freshly registered domain
+usually has nothing worth keeping beyond the registrar's parking records. Delete
+anything unrecognised now rather than debugging it later.
 
-The domain stays registered at Namecheap; only **DNS** moves to Cloudflare. That
-is enough, and it is also required: a Workers custom domain only works if the zone
-is served by Cloudflare's nameservers.
+**c. Point the nameservers at Cloudflare** in the registrar's control panel,
+replacing its default nameservers with the two Cloudflare assigned.
 
-**a. Add the zone to Cloudflare.** Dashboard → *Add a site* → `likelylist.tech` →
-Free plan. Cloudflare scans the existing DNS and shows two assigned nameservers.
+> If DNSSEC is enabled at the registrar, **turn it off first**. Changing
+> nameservers while DNSSEC is still signed by the old provider makes the domain
+> fail to resolve entirely.
 
-**b. Check the imported records before switching.** For a freshly registered domain
-there is normally nothing worth keeping (Namecheap's parking page and its
-`_domainconnect` record). Delete anything you do not recognise now rather than
-debugging it later.
+**d. Wait for activation** — up to 24 hours, usually far less. The zone flips to
+**Active**. Nothing below works until then.
 
-**c. Change the nameservers at Namecheap.** Domain List → **Manage** on
-`likelylist.tech` → *Nameservers* → switch from **Namecheap BasicDNS** to **Custom
-DNS** → paste Cloudflare's two nameservers exactly → save (the green tick).
-
-> If DNSSEC is enabled at Namecheap (Advanced DNS → DNSSEC), **turn it off first**.
-> Changing nameservers with DNSSEC still signed by the old provider makes the
-> domain fail to resolve entirely.
-
-**d. Wait for activation** — up to 24 hours, usually far less. Cloudflare emails
-you and the zone flips to **Active**. Nothing below works until then.
-
-**e. Then add the records you actually need**, in Cloudflare DNS:
+**e. Then add the records the project needs**, in Cloudflare DNS:
 
 | Purpose | Record |
 | --- | --- |
@@ -77,14 +160,11 @@ you and the zone flips to **Active**. Nothing below works until then.
 > Proxying a mail-authentication record breaks verification, and this is the single
 > most common way this setup fails.
 
-**Transferring the registration to Cloudflare** (optional, cheaper at renewal) is
-possible later but not now: ICANN forbids transferring a domain within **60 days**
-of registration, and Cloudflare additionally requires the zone to already be
-Active. `.tech` is on Cloudflare Registrar's supported list, so after
-**early October 2026** you can unlock the domain at Namecheap, get the EPP/auth
-code, and transfer. Doing so changes nothing about the setup above.
+Moving the registration to Cloudflare Registrar later is optional and changes
+nothing above. Note that ICANN forbids transferring a domain within 60 days of
+registration, and Cloudflare requires the zone to already be Active.
 
-One honest caveat about `.tech`: newer gTLDs carry marginally more spam history
+A note on newer gTLDs such as `.tech`: they carry marginally more spam history
 than `.com`, so some filters weight them slightly worse. The mitigations are the
 ones already built in — a dedicated sending subdomain, SPF + DKIM + DMARC, a real
 `List-Unsubscribe`, and low volume to start.
@@ -149,9 +229,9 @@ expected, not a problem.
 
 The Supabase CLI is not used here. `supabase db push` expects
 `<timestamp>_name.sql` filenames and a linked project, and `supabase start` needs
-Docker for a local Postgres — none of which buys anything for four scripts run
-once against a single environment. Rename the files to the timestamp convention
-if you ever want CLI-managed migrations.
+Docker for a local Postgres — none of which buys anything for a handful of scripts
+run once against a single environment. Rename the files to the timestamp
+convention if CLI-managed migrations become worthwhile.
 
 Afterwards, confirm the two things that are easy to get wrong:
 
@@ -180,10 +260,10 @@ npm run seed:genres
 
 `seed:genres` reads the taxonomy from Ticketmaster's live `/classifications`
 endpoint. **The genre IDs are deliberately not in the codebase:** Ticketmaster
-publishes no genre ID table and third-party lists contradict each other (two
-sources I checked give different IDs for "Rock"), so hardcoding them would
-silently filter on the wrong genre. The only ID taken on faith is the Music
-segment, `KZFzniwnSyZfZ7v7nJ`, which the official docs do state.
+publishes no genre ID table and third-party lists contradict each other — they do
+not agree even on the ID for "Rock" — so hardcoding them would silently filter on
+the wrong genre. The only ID taken on faith is the Music segment,
+`KZFzniwnSyZfZ7v7nJ`, which the official docs do state.
 
 ### 5. Run it
 
@@ -299,8 +379,9 @@ Then, by hand:
   produce a `profiles` row (created by a database trigger, not by app code).
 - **Genres** — after `npm run seed:genres`, check `genres` holds real Ticketmaster
   IDs and that `tm_segment_id` is `KZFzniwnSyZfZ7v7nJ`.
-- **Feeds** — upload a few show posters plus one image that clearly isn't one. The
-  non-poster should return `not_an_event_poster: true` and change nothing. Confirm
+- **Feeds** — upload a few music-app screenshots plus one image with nothing to do
+  with music. The last should return `not_music_related: true` and change nothing.
+  Confirm
   `feeds.image_path` stays `NULL` on success — the image is only ever persisted
   when extraction *fails*, so a retry does not need you to find the screenshot
   again — and that `usage_counters` increments.
@@ -330,13 +411,13 @@ Then, by hand:
 - **Open redirect** — `/auth/callback?next=/\evil.com` must land on `/app`, not on
   another origin. Covered by `src/lib/safe-redirect.test.ts` as well.
 
-What has been verified so far without live credentials: the full unit suite
-(headliner inference, timezone/DST arithmetic, the strict extraction schema, token
-signing, and the email's size/attribution/images-off properties), a clean
-`typecheck` and `lint`, a successful `opennextjs-cloudflare build`, and the cron
-path exercised in the real Workers runtime — the scheduled handler reaches
-`/api/cron/digest`, authenticates, and returns a structured error naming the
-missing credential. Everything past that point needs your API keys.
+What can be verified without live credentials: the full unit suite (headliner
+inference, timezone/DST arithmetic, the strict extraction schema, token signing,
+and the email's size/attribution/images-off properties), `typecheck`, `lint`, an
+`opennextjs-cloudflare build`, and the cron path in the real Workers runtime —
+the scheduled handler reaches `/api/cron/digest`, authenticates, and returns a
+structured error naming the missing credential. Everything past that point needs
+real API keys.
 
 ---
 
@@ -369,8 +450,8 @@ adds support.
 Discovery API whose attraction objects carry no `externalLinks` and no
 classification IDs, so genre filtering there would need a different mechanism.
 
-**The Cloudflare student waiver expires after 12 months**, after which the account
-drops to the Workers free plan and the send breaks.
+**Workers Paid is a hard requirement.** If the account ever drops to the free
+plan, the send breaks on the CPU and subrequest limits rather than degrading.
 
 **Cron timing drifts within the hour** (see above).
 
@@ -416,14 +497,13 @@ transcribe — never as an instruction — so a screenshot cannot direct the sys
 
 Ordered so nothing waits on something later in the list.
 
-- [ ] Cloudflare for Students active, `.edu` set as the **billing** email
-- [ ] Calendar reminder for **August 2027**: the waiver lapses and the send breaks
-- [ ] `likelylist.tech` nameservers pointed at Cloudflare, zone shows **Active**
-- [ ] DNSSEC disabled at Namecheap *before* the nameserver switch
-- [ ] Migrations `0001`–`0005` all applied
+- [ ] Workers Paid active on the Cloudflare account
+- [ ] Nameservers pointed at Cloudflare, zone shows **Active**
+- [ ] DNSSEC disabled at the registrar *before* the nameserver switch
+- [ ] Migrations `0001`–`0007` all applied
 - [ ] `npm run seed:cities` and `npm run seed:genres` run
 - [ ] Google OAuth redirect URI set to the Supabase callback; Google provider on
-- [ ] `mail.likelylist.tech` verified in Resend, SPF + DKIM + DMARC in Cloudflare
+- [ ] Sending subdomain verified in Resend, SPF + DKIM + DMARC in Cloudflare
       DNS, every CNAME set to **DNS only** (grey cloud)
 - [ ] `EMAIL_FROM` moved off `resend.dev`
 - [ ] All secrets pushed with `wrangler secret put`
@@ -442,31 +522,46 @@ Ordered so nothing waits on something later in the list.
 
 ---
 
-## Layout
+## Source layout
 
 ```
-worker.ts                    Cloudflare entry: OpenNext fetch + scheduled handler
+worker.ts                    Worker entry: OpenNext fetch + scheduled + email
 wrangler.jsonc               Bindings and the two cron triggers
-supabase/migrations/         Schema, RLS, storage policies, queue functions
-scripts/                     Reference-data seeders
+supabase/migrations/         Schema, RLS, storage policies, queue functions, grants
+scripts/                     Seeders, preflight, security-check, Ticketmaster probe
 src/
-  components/session-sync.tsx  Browser-side auth refresh (stands in for proxy.ts)
   app/
-    app/                     Signed-in area: overview, subscriptions, feeds, settings
-    preview/digest/[token]/  Web version of the email, opened from an inbox
+    page.tsx                 Landing page, with anonymous subscribe
+    explore/                 Public listings by city or ZIP, no account
+    subscribe/confirm/       Double opt-in confirmation, opened from an inbox
     unsubscribe/             RFC 8058 one-click endpoint, standalone by design
-    api/                     feeds, digest preview, cron
+    preview/digest/[token]/  Web version of the email, opened from an inbox
     privacy/                 Privacy policy — required by Ticketmaster's terms
+    dev-mode/                Sets the cookie that reveals raw error detail
     robots.ts sitemap.ts     Keep token-bearing URLs out of search indexes
+    app/                     Signed-in area: overview, subscriptions, feeds, settings
+    api/                     feeds, explore, subscribe, cron, inbound unsubscribe
+  components/
+    session-sync.tsx         Browser-side auth refresh (stands in for proxy.ts)
+    anonymous-subscribe.tsx  Shared signup box (landing + explore)
+    service-icon.tsx         Official YouTube / Spotify marks, unmodified
   lib/
-    safe-redirect.ts         Same-origin redirect validation (open-redirect guard)
-    site-url.ts              Origin only, for pages that must not need credentials
+    digest/                  plan → build → send, and the queue drainer
+    email/                   react-email templates and the size-budgeted renderer
     ticketmaster/            Client, classifications, events, headliner inference,
                              genre-ranking (curated popularity order)
     vision/                  Strict extraction schema, OpenAI provider, preprocessing
-    digest/                  plan → build → render → send, and the queue drainer
-    email/                   react-email template and size-budgeted renderer
+    feeds/apply.ts           Merges a confirmed extraction into preferences
+    subscribe/anonymous.ts   Double opt-in: request, confirm, rate limits
     enrich/                  Quota-aware YouTube lookup, Spotify/YouTube links
-    tokens.ts                HMAC links for unsubscribe and preview
+    supabase/                Request-scoped (RLS) and service-role clients
+    i18n/                    Locales and strings for the inbox-facing pages
+    errors.ts api-error.ts   AppError and the single route error responder
+    dev-mode.ts              Per-browser flag for showing raw detail
+    tokens.ts                HMAC links for unsubscribe, preview and confirm
+    safe-redirect.ts         Same-origin redirect validation (open-redirect guard)
+    standalone-page.ts       Dependency-free HTML for the inbox-facing pages
+    region.ts geohash.ts     Timezone→metro guess; geoPoint encoding
+    site-url.ts              Origin only, for pages that must not need credentials
     time.ts                  Timezone and DST arithmetic
 ```
