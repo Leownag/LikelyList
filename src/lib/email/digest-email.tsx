@@ -13,6 +13,11 @@ import {
 } from "@react-email/components";
 import type { Digest, DigestEvent, DigestPerformer } from "@/lib/digest/types";
 import { MAX_EMAIL_EVENTS, MAX_EMAIL_PERFORMERS } from "@/lib/digest/types";
+import {
+  serviceIconUrl,
+  serviceLabel,
+  type LinkService,
+} from "@/components/service-icon";
 
 /**
  * The weekly digest email.
@@ -93,7 +98,11 @@ export function DigestEmail({ digest }: { digest: Digest }) {
             <EmptyWeek digest={digest} />
           ) : (
             shown.map((event) => (
-              <EventCard key={event.tmEventId} event={event} />
+              <EventCard
+              key={event.tmEventId}
+              event={event}
+              siteUrl={digest.siteUrl}
+            />
             ))
           )}
 
@@ -206,7 +215,13 @@ function PixelStrip({ seed }: { seed: string }) {
   );
 }
 
-function EventCard({ event }: { event: DigestEvent }) {
+function EventCard({
+  event,
+  siteUrl,
+}: {
+  event: DigestEvent;
+  siteUrl: string;
+}) {
   const headliner = event.performers.find((p) => p.isHeadliner) ?? null;
   const rest = event.performers.filter((p) => p !== headliner);
 
@@ -308,12 +323,17 @@ function EventCard({ event }: { event: DigestEvent }) {
           ) : null}
 
           {headliner ? (
-            <PerformerRow performer={headliner} label="headliner" />
+            <PerformerRow
+              performer={headliner}
+              label="headliner"
+              siteUrl={siteUrl}
+            />
           ) : null}
           {listed.map((performer) => (
             <PerformerRow
               key={performer.name}
               performer={performer}
+              siteUrl={siteUrl}
               // Ticketmaster exposes no billing order, so anyone we could not
               // identify from the title is described as sharing the bill rather
               // than being given a role we cannot substantiate.
@@ -370,12 +390,26 @@ function EventCard({ event }: { event: DigestEvent }) {
   );
 }
 
+/**
+ * One performer: name, billing label, and the two outbound links.
+ *
+ * Deliberately flat — one table, one row, two text nodes. The first version
+ * nested a table inside a td inside a table per performer and carried a 48x32
+ * thumbnail each. At ten events that came to forty images and about 130 KB, which
+ * is past the point where Gmail clips the body and hides the unsubscribe link.
+ *
+ * The per-performer thumbnail is gone rather than shrunk: every card already has
+ * a hero image, and Gmail fetches every image the moment a message is delivered,
+ * so forty extra requests bought very little.
+ */
 function PerformerRow({
   performer,
   label,
+  siteUrl,
 }: {
   performer: DigestPerformer;
   label: string;
+  siteUrl: string;
 }) {
   return (
     <table
@@ -386,101 +420,63 @@ function PerformerRow({
       width="100%"
       style={{
         borderCollapse: "collapse" as const,
-        marginTop: "12px",
+        marginTop: "10px",
         borderTop: `1px solid ${BORDER}`,
       }}
     >
       <tbody>
         <tr>
-          <td style={{ paddingTop: "10px", verticalAlign: "top" as const }}>
-            <table
-              role="presentation"
-              cellPadding={0}
-              cellSpacing={0}
-              border={0}
-              style={{ borderCollapse: "collapse" as const }}
+          <td style={{ paddingTop: "8px" }}>
+            <Text
+              style={{
+                margin: 0,
+                fontFamily: SANS,
+                fontSize: "14px",
+                color: TEXT,
+              }}
             >
-              <tbody>
-                <tr>
-                  {performer.imageUrl ? (
-                    <td
-                      width={48}
-                      style={{ paddingRight: "10px", verticalAlign: "top" as const }}
-                    >
-                      <Img
-                        src={performer.imageUrl}
-                        alt={performer.name}
-                        width={48}
-                        height={32}
-                        style={{
-                          display: "block",
-                          border: 0,
-                          fontFamily: SANS,
-                          fontSize: "10px",
-                          color: FAINT,
-                          backgroundColor: BG,
-                        }}
-                      />
-                    </td>
-                  ) : null}
-                  <td style={{ verticalAlign: "top" as const }}>
-                    <Text
-                      style={{
-                        margin: 0,
-                        fontFamily: SANS,
-                        fontSize: "14px",
-                        color: TEXT,
-                      }}
-                    >
-                      {performer.tmUrl ? (
-                        <Link
-                          href={performer.tmUrl}
-                          style={{ color: TEXT, textDecoration: "none" }}
-                        >
-                          {performer.name}
-                        </Link>
-                      ) : (
-                        performer.name
-                      )}
-                      <span
-                        style={{
-                          fontFamily: MONO,
-                          fontSize: "10px",
-                          letterSpacing: "0.08em",
-                          textTransform: "uppercase" as const,
-                          color: FAINT,
-                          paddingLeft: "8px",
-                        }}
-                      >
-                        {label}
-                      </span>
-                    </Text>
-                    <Text
-                      style={{
-                        margin: "4px 0 0",
-                        fontFamily: SANS,
-                        fontSize: "12px",
-                        color: MUTED,
-                      }}
-                    >
-                      <Link
-                        href={performer.youtubeUrl}
-                        style={{ color: MUTED, textDecoration: "underline" }}
-                      >
-                        YouTube
-                      </Link>
-                      <span style={{ color: FAINT }}> · </span>
-                      <Link
-                        href={performer.spotifyUrl}
-                        style={{ color: MUTED, textDecoration: "underline" }}
-                      >
-                        Spotify
-                      </Link>
-                    </Text>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              {performer.tmUrl ? (
+                <Link
+                  href={performer.tmUrl}
+                  style={{ color: TEXT, textDecoration: "none" }}
+                >
+                  {performer.name}
+                </Link>
+              ) : (
+                performer.name
+              )}
+              <span
+                style={{
+                  fontFamily: MONO,
+                  fontSize: "10px",
+                  textTransform: "uppercase" as const,
+                  color: FAINT,
+                  paddingLeft: "8px",
+                }}
+              >
+                {label}
+              </span>
+            </Text>
+            <Text
+              style={{
+                margin: "3px 0 0",
+                fontFamily: SANS,
+                fontSize: "12px",
+                color: MUTED,
+              }}
+            >
+              <EmailServiceLink
+                service="youtube"
+                href={performer.youtubeUrl}
+                siteUrl={siteUrl}
+              />
+              <span style={{ color: FAINT }}> · </span>
+              <EmailServiceLink
+                service="spotify"
+                href={performer.spotifyUrl}
+                siteUrl={siteUrl}
+              />
+            </Text>
           </td>
         </tr>
       </tbody>
@@ -557,6 +553,10 @@ function Footer({ digest }: { digest: Digest }) {
           Change what you follow
         </Link>
         <span style={{ color: FAINT }}> · </span>
+        <Link href={`${digest.siteUrl}/privacy`} style={linkStyle}>
+          Privacy
+        </Link>
+        <span style={{ color: FAINT }}> · </span>
         {/* Repeated in the List-Unsubscribe headers; kept in the body because
             clients that do not surface those headers still need a way out. */}
         <Link href={digest.unsubscribeUrl} style={linkStyle}>
@@ -586,6 +586,45 @@ function Footer({ digest }: { digest: Digest }) {
         as opening acts.
       </Text>
     </Section>
+  );
+}
+
+/**
+ * A YouTube or Spotify link with its official mark, for email.
+ *
+ * The label is always rendered as text beside the icon, not replaced by it.
+ * Images are blocked in a large share of inboxes, and a bare icon that fails to
+ * load leaves an unexplained gap where a link should be — so the icon is
+ * decorative (`alt=""`) and the word carries the meaning.
+ *
+ * See components/service-icon.tsx for why the asset must be the unmodified
+ * official one rather than something drawn in this site's pixel style.
+ */
+function EmailServiceLink({
+  service,
+  href,
+  siteUrl,
+}: {
+  service: LinkService;
+  href: string;
+  siteUrl: string;
+}) {
+  return (
+    <Link href={href} style={{ color: MUTED, textDecoration: "underline" }}>
+      <Img
+        src={serviceIconUrl(service, siteUrl)}
+        alt=""
+        width={12}
+        height={12}
+        style={{
+          display: "inline-block",
+          border: 0,
+          verticalAlign: "middle",
+          marginRight: "4px",
+        }}
+      />
+      {serviceLabel(service)}
+    </Link>
   );
 }
 

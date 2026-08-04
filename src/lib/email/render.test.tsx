@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import type { Digest, DigestEvent } from "@/lib/digest/types";
-import { MAX_EMAIL_EVENTS } from "@/lib/digest/types";
+import { MAX_EMAIL_EVENTS, MAX_EMAIL_PERFORMERS } from "@/lib/digest/types";
 import {
   GMAIL_CLIP_BYTES,
   buildPlainText,
@@ -89,16 +89,44 @@ test("layout is tables only — no flexbox or grid", async () => {
   assert.ok(html.includes("<table"));
 });
 
-test("every image has explicit dimensions and alt text", async () => {
+test("every image has explicit dimensions, and content images have alt text", async () => {
   const { html } = await renderDigestEmail(makeDigest(3));
   const imgs = html.match(/<img\b[^>]*>/gi) ?? [];
   assert.ok(imgs.length > 0, "expected the digest to contain images");
 
   for (const img of imgs) {
-    assert.match(img, /\salt="[^"]+"/i, `image is missing alt text: ${img}`);
+    // Dimensions on everything: without them Outlook sizes images from the file
+    // and the layout blows out before the image even loads.
     assert.match(img, /\swidth="?\d+/i, `image is missing width: ${img}`);
     assert.match(img, /\sheight="?\d+/i, `image is missing height: ${img}`);
+    // An alt attribute must always be present, even if empty.
+    assert.match(img, /\salt="/i, `image has no alt attribute at all: ${img}`);
+
+    // The YouTube and Spotify marks are decorative: the word "YouTube" sits next
+    // to them as real text, so alt="" is the correct accessible choice and a
+    // duplicate label would be noise in a screen reader. Everything else carries
+    // information and must be described.
+    const decorative = /\/brand\//.test(img);
+    if (!decorative) {
+      assert.match(
+        img,
+        /\salt="[^"]+"/i,
+        `content image is missing alt text: ${img}`,
+      );
+    }
   }
+});
+
+test("the brand marks are present but never the only label", async () => {
+  const { html } = await renderDigestEmail(makeDigest(2, 2));
+  assert.ok(html.includes("/brand/youtube.svg"));
+  assert.ok(html.includes("/brand/spotify.svg"));
+
+  // With every image stripped, the service names must still be readable — an icon
+  // that fails to load must not leave an unexplained gap where a link was.
+  const withoutImages = html.replace(/<img\b[^>]*>/gi, "");
+  assert.ok(withoutImages.includes("YouTube"));
+  assert.ok(withoutImages.includes("Spotify"));
 });
 
 test("all images are https and no Spotify CDN images are hotlinked", async () => {
@@ -126,7 +154,11 @@ test("the email reads without images: nothing is image-only", async () => {
     assert.ok(withoutImages.includes(event.name), `${event.name} missing`);
     assert.ok(withoutImages.includes("Roadrunner"), "venue missing");
     assert.ok(withoutImages.includes("Fri, Aug 7"), "date missing");
-    for (const performer of event.performers) {
+
+    // Only the performers the template actually renders. The rest are
+    // deliberately summarised as a count, not omitted by accident — the assertion
+    // is "nothing shown depends on an image", not "everything is shown".
+    for (const performer of event.performers.slice(0, MAX_EMAIL_PERFORMERS)) {
       assert.ok(
         withoutImages.includes(performer.name),
         `${performer.name} missing`,
@@ -155,15 +187,19 @@ test("performers are labelled honestly about billing order", async () => {
 
 test("a long festival bill is summarised, not listed in full", async () => {
   // 12 acts on one bill: the tail must be counted rather than rendered, or the
-  // email blows the size budget. With MAX_EMAIL_PERFORMERS of 4 that is the
-  // headliner plus 3 listed, leaving 8 summarised.
-  const { html } = await renderDigestEmail(makeDigest(1, 12));
-  assert.match(html, /\+\s*8 more on the bill/);
+  // email blows the size budget. Derived from the constant so tuning the cap for
+  // byte budget reasons does not break this test.
+  const bill = 12;
+  const listed = MAX_EMAIL_PERFORMERS - 1; // the headliner takes one slot
+  const hidden = bill - 1 - listed;
+
+  const { html } = await renderDigestEmail(makeDigest(1, bill));
+  assert.match(html, new RegExp(`\\+\\s*${hidden} more on the bill`));
   assert.ok(html.includes("see the full lineup"));
 
   // The listed ones are the first few; the summarised tail must not also appear.
-  assert.ok(html.includes("Performer 0-3 With A Long Band Name"));
-  assert.ok(!html.includes("Performer 0-11 With A Long Band Name"));
+  assert.ok(html.includes(`Performer 0-${listed} With A Long Band Name`));
+  assert.ok(!html.includes(`Performer 0-${bill - 1} With A Long Band Name`));
 });
 
 test("an event with no identifiable headliner says so neutrally", async () => {

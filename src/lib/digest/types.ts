@@ -56,7 +56,7 @@ export type Digest = {
  * including the unsubscribe link — so the email is capped and the remainder
  * lives behind the "view all" link. See assertEmailSize in ./render.
  */
-export const MAX_EMAIL_EVENTS = 8;
+export const MAX_EMAIL_EVENTS = 10;
 
 /**
  * How many performers each card lists.
@@ -65,7 +65,7 @@ export const MAX_EMAIL_EVENTS = 8;
  * with a dozen acts renders a dozen sub-tables. The remainder is summarised as a
  * count rather than dropped silently.
  */
-export const MAX_EMAIL_PERFORMERS = 4;
+export const MAX_EMAIL_PERFORMERS = 3;
 
 /** How many events get YouTube enrichment. Only what the email will show. */
 export const MAX_ENRICHED_PERFORMERS = 24;

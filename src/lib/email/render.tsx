@@ -105,6 +105,7 @@ export function buildPlainText(digest: Digest): string {
   lines.push("---");
   lines.push(`View in browser: ${digest.previewUrl}`);
   lines.push(`Change what you follow: ${digest.siteUrl}/app/subscriptions`);
+  lines.push(`Privacy: ${digest.siteUrl}/privacy`);
   lines.push(`Unsubscribe: ${digest.unsubscribeUrl}`);
   lines.push("");
   lines.push(
