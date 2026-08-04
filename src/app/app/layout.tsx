@@ -7,12 +7,17 @@ const NAV = [
   { href: "/app", label: "Overview" },
   { href: "/app/subscriptions", label: "Cities & genres" },
   { href: "/app/feeds", label: "Feeds" },
+  // Outside /app, but reachable from here on purpose: /explore was linked only
+  // from the landing page, so signing in silently took away the one way to look
+  // up listings between Fridays.
+  { href: "/explore", label: "Explore" },
   { href: "/app/settings", label: "Settings" },
 ] as const;
 
 export default async function AppLayout({ children }: LayoutProps<"/app">) {
-  // Every protected page re-verifies on the server rather than trusting the
-  // proxy, which only refreshes the token.
+  // Every protected page re-verifies on the server. There is no proxy to trust
+  // here in any case — refresh happens in the browser (see session-sync.tsx and
+  // the README's note on opennextjs-cloudflare#962).
   const { profile } = await requireProfile();
 
   return (

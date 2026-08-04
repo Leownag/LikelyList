@@ -3,7 +3,7 @@ import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PREVIEW_TOKEN_MAX_AGE_MS, verifyToken } from "@/lib/tokens";
 import { buildDigest } from "@/lib/digest/build";
-import { digestWindow, localDateString } from "@/lib/time";
+import { digestWindow, formatInstantInZone, localDateString } from "@/lib/time";
 import { Card, EmptyState, ButtonLink } from "@/components/ui";
 import { PixelDot, PixelMosaic, PixelRule } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
@@ -94,6 +94,68 @@ export default async function DigestPreviewPage({
 
       <PixelRule className="mt-8" />
 
+      {/* Same disclosure the email carries — this page is the email's own "view in
+          browser", so it cannot present an unfiltered list as a filtered one
+          either. */}
+      {digest.fallbackReason === "no_preferences" && digest.events.length > 0 ? (
+        <div className="mt-8 border border-border-strong/70 border-l-2 border-l-accent bg-surface/50 p-4">
+          <p className="text-sm leading-relaxed text-muted">
+            You haven&apos;t told us what you listen to yet, so this is
+            everything listed in{" "}
+            {digest.cities.join(", ") || "your cities"} — not a filtered
+            selection.{" "}
+            <a
+              className="text-accent underline"
+              href={`${digest.siteUrl}/login?next=${encodeURIComponent("/app/subscriptions")}`}
+            >
+              Pick your genres
+            </a>{" "}
+            and next Friday&apos;s email gets much shorter.
+          </p>
+        </div>
+      ) : null}
+
+      {/* The email caps this section at MAX_ONSALE_EVENTS; here every drop in the
+          window is listed, the same way the show list is. */}
+      {digest.onsale.length > 0 ? (
+        <section className="mt-8">
+          <p className="label-pixel">on sale this week</p>
+          <ul className="mt-3 divide-y divide-border border border-border">
+            {digest.onsale.map((item) => {
+              const when = formatInstantInZone(item.onsaleStart, digest.timezone);
+              const place = [item.venueName, item.cityLabel]
+                .filter(Boolean)
+                .join(" · ");
+
+              return (
+                <li key={item.tmEventId} className="px-4 py-3">
+                  <p className="text-sm text-text">
+                    {item.url ? (
+                      <a className="hover:underline" href={item.url}>
+                        {item.name}
+                      </a>
+                    ) : (
+                      item.name
+                    )}
+                    <span className="text-muted">
+                      {place ? ` — ${place}` : ""} · {item.dateLabel}
+                    </span>
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-accent">
+                    {when ? `on sale ${when}` : "on sale date announced"}
+                  </p>
+                  {item.matchedArtists.length > 0 ? (
+                    <p className="mt-1 text-xs text-faint">
+                      because you follow {item.matchedArtists.join(", ")}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
       {digest.events.length === 0 ? (
         <div className="mt-8">
           <EmptyState title="no matches">
@@ -101,7 +163,10 @@ export default async function DigestPreviewPage({
               ? "You haven't followed any cities yet."
               : "No listed shows matched your genres or artists this week."}
             <div className="mt-4">
-              <ButtonLink href={`${digest.siteUrl}/app/subscriptions`} variant="outline">
+              <ButtonLink
+                href={`${digest.siteUrl}/login?next=${encodeURIComponent("/app/subscriptions")}`}
+                variant="outline"
+              >
                 Widen your filters
               </ButtonLink>
             </div>

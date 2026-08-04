@@ -6,7 +6,16 @@ import { requestSubscription } from "@/lib/subscribe/anonymous";
 const BodySchema = z.object({
   email: z.string().min(3).max(254),
   citySlug: z.string().max(64).nullable().default(null),
-  genreIds: z.array(z.number().int()).max(20).default([]),
+  /**
+   * At least one, and this is not a nicety.
+   *
+   * buildDigest filters on genre weight and followed artists, and an anonymous
+   * subscriber has no artists — so a subscription with no genre produces a
+   * technically-correct empty email every Friday for as long as it exists. One
+   * required tap here is the whole difference between a working subscription and
+   * a broken one.
+   */
+  genreIds: z.array(z.number().int()).min(1).max(20),
   timezone: z.string().max(64).default("America/New_York"),
 });
 
@@ -37,9 +46,19 @@ export async function POST(request: NextRequest) {
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await request.json());
-  } catch {
+  } catch (error) {
+    // Which field failed matters here: "send an email address" in response to a
+    // missing genre is the kind of error message that makes a form unfixable.
+    const missingGenre =
+      error instanceof z.ZodError &&
+      error.issues.some((issue) => issue.path[0] === "genreIds");
+
     return NextResponse.json(
-      { error: "Send an email address." },
+      {
+        error: missingGenre
+          ? "Pick at least one genre — that's what the email filters on."
+          : "Send an email address.",
+      },
       { status: 400 },
     );
   }

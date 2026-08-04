@@ -24,21 +24,21 @@ export const dynamic = "force-dynamic";
 
 const STEPS = [
   {
-    label: "01 / follow",
-    title: "Pick your cities and genres",
-    body: "Choose the cities you'd actually travel to and the genres you actually listen to. Change them whenever — nothing is locked in.",
+    label: "01 / your email",
+    title: "One address, one confirmation",
+    body: "No password, no account to set up. Pick your city and a genre or two, confirm from your inbox, and you're subscribed. Coming back later means asking for a link — that's the whole login.",
     art: <StepCities />,
   },
   {
-    label: "02 / feed",
-    title: "Screenshot what you listen to",
-    body: "Open Spotify or Apple Music and screenshot your home screen, your liked songs, a playlist, your top artists. likelylist reads the artist names and weights your digest towards them.",
+    label: "02 / your artists",
+    title: "Name the ones you keep missing",
+    body: "Search for anyone you don't want to miss again, or screenshot your Spotify or Apple Music home screen and let it read the names off. Their shows reach you even in a genre you don't follow.",
     art: <StepFeed />,
   },
   {
     label: "03 / friday",
     title: "One email, Friday morning",
-    body: "Everything worth knowing about the coming week: who's playing, where, when, with links out to YouTube and Spotify.",
+    body: "What goes on sale this week — the part you can still act on — then who's playing, where and when, with links out to YouTube and Spotify.",
     art: <StepEmail />,
   },
 ];
@@ -54,6 +54,13 @@ const CAVEATS = [
     Reading a screenshot is not perfect. Everything it thinks it found is shown to
     you for confirmation before it changes anything, and the image itself is read
     once and not kept.
+  </>,
+  <>
+    On-sale dates are only as good as what Ticketmaster has published. Plenty of
+    events have none yet, and presales are not distinguished from the general
+    onsale — so this tells you what has been{" "}
+    <span className="text-text">announced</span>, not everything that will
+    happen.
   </>,
   <>
     United States listings only for now. Coverage outside the US runs on a
@@ -106,6 +113,9 @@ export default async function Home() {
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-10">
       <header className="flex items-center justify-between">
         <Wordmark href={null} />
+        {/* No primary button up here on purpose. The subscribe box below is the
+            page's one primary action, and a header CTA pointing at /login was
+            competing with it — offering a longer path to the same thing. */}
         <nav className="flex items-center gap-2">
           <ButtonLink href="/explore" variant="ghost">
             Explore
@@ -113,7 +123,6 @@ export default async function Home() {
           <ButtonLink href="/login" variant="ghost">
             Sign in
           </ButtonLink>
-          <ButtonLink href="/login?mode=signup">Get YOUR feed</ButtonLink>
         </nav>
       </header>
 
@@ -124,31 +133,43 @@ export default async function Home() {
             The shows you&apos;d have found out about too late.
           </h1>
           <p className="mt-6 text-base leading-relaxed text-muted">
-            Every Friday morning, one email with the concerts happening near you in
-            the coming week — filtered by the cities and genres you follow, and by
-            what your music app says you actually listen to.
+            Every Friday morning, one email: what goes on sale this week, and who&apos;s
+            playing near you in the next seven days — filtered by the cities and
+            genres you follow, the artists you name, and what your music app says
+            you actually listen to.
           </p>
 
-          {cities.length > 0 ? (
-            <div className="mt-8">
-              <AnonymousSubscribe cities={cities} genres={genres} />
-            </div>
+          {/* Both lists are required: the box asks for a city and at least one
+              genre, so rendering it against an unseeded database would produce a
+              form that cannot be submitted. */}
+          {cities.length > 0 && genres.length > 0 ? (
+            <>
+              <div className="mt-8">
+                <AnonymousSubscribe cities={cities} genres={genres} />
+              </div>
+              {/* Promoted from 12px grey body text to a real secondary button.
+                  Someone who has just missed a show wants to see whether this
+                  thing knows about their city before handing over an address, and
+                  that was the least visible element on the page. */}
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <ButtonLink href="/explore" variant="outline">
+                  Or browse this week first
+                </ButtonLink>
+                <span className="text-xs text-faint">
+                  No email needed. Nothing saved.
+                </span>
+              </div>
+            </>
           ) : (
+            // Degraded path: subscribing cannot work without the reference data,
+            // so send people to the one thing that still does.
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="/login?mode=signup">Start following</ButtonLink>
+              <ButtonLink href="/explore">See what&apos;s on this week</ButtonLink>
               <span className="text-xs text-faint">
-                Free. One email a week. One-click unsubscribe.
+                The weekly email is not taking signups yet.
               </span>
             </div>
           )}
-
-          <p className="mt-4 text-xs text-faint">
-            Or{" "}
-            <a className="text-accent underline" href="/explore">
-              browse this week without signing up
-            </a>
-            .
-          </p>
         </div>
 
         <PixelMosaic

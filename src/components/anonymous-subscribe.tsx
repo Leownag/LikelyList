@@ -8,7 +8,19 @@ import {
   useDetectedTimezone,
 } from "@/lib/use-detected-region";
 
-export type SubscribeCity = { slug: string; name: string; stateCode: string | null };
+export type SubscribeCity = {
+  slug: string;
+  name: string;
+  stateCode: string | null;
+  /**
+   * Present for the curated metros, which are seeded with coordinates.
+   *
+   * Unused by this component — it subscribes by city slug — but /explore needs it to
+   * seed its search box with the reader's detected city without a second lookup.
+   */
+  latitude?: number | null;
+  longitude?: number | null;
+};
 export type SubscribeGenre = { id: number; name: string };
 
 /**
@@ -64,6 +76,14 @@ export function AnonymousSubscribe({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+
+    // Checked here as well as on the server so the reader is told before the
+    // round trip, and told next to the chips rather than next to the email field.
+    if (genreIds.size === 0) {
+      setError("Pick at least one genre — that's what the email filters on.");
+      return;
+    }
+
     setBusy(true);
     setError(null);
 
@@ -161,7 +181,7 @@ export function AnonymousSubscribe({
       {topGenres.length > 0 ? (
         <div className="mt-4">
           <p className="text-xs text-faint">
-            Optional — pick a few genres, or leave it and choose later:
+            Pick at least one — this is what the email filters on:
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {topGenres.map((genre) => {
