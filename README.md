@@ -113,6 +113,29 @@ request has no cookies. The first two render through `lib/standalone-page.ts`: n
 React, no layout, no session, translated from `Accept-Language`. They are the
 pages that must be the least breakable things in the app.
 
+Those three pages are also the whole indexable surface, and `sitemap.ts` lists exactly
+them. Titles come from one `title.template` in the root layout, so each page exports a
+bare title. Note that a page-level `openGraph` **replaces** the layout's object rather
+than merging into it — so the layout deliberately declares only `type`, `siteName` and
+`locale` there, and lets `og:title` and `og:description` fall back to each page's own.
+
+**`?lang=` is what makes a translation indexable.** In the app the locale comes from a
+cookie and `Accept-Language` (`lib/i18n/server.ts`), which is right for a reader and
+useless for a crawler: Google sends neither, so one URL serving two languages gets
+indexed as English and the Chinese copy is invisible no matter how good it is. So the
+landing page also accepts `?lang=`, which outranks the cookie, and `lib/site-url.ts`
+(`localePath`, `localeAlternates`) is the single definition of where each locale lives.
+`/` and `/?lang=zh-Hant` each declare a self-referencing canonical plus the full
+reciprocal `hreflang` set — a canonical pointing at `/` instead would ask Google to drop
+the translation as a duplicate.
+
+Two consequences worth knowing. The root layout cannot read search params, so on a
+`?lang=` visit `<html lang>` disagrees with the copy; the landing page therefore carries
+`lang` on its own `<main>`, which is valid and is what a screen reader reads. And only the
+landing page is translated — `/explore` and `/privacy` are English in every locale, which
+is why they carry no `hreflang`. Adding one there before the copy exists would claim two
+identical pages are alternates of each other.
+
 ### Cross-cutting
 
 - `lib/errors.ts` + `lib/api-error.ts` — routes throw `AppError`; one function
@@ -800,12 +823,19 @@ Ordered so nothing waits on something later in the list.
       may be switched off — see *Accounts* above
 - [ ] Sending subdomain verified in Resend, SPF + DKIM + DMARC in Cloudflare
       DNS, every CNAME set to **DNS only** (grey cloud)
-- [ ] `EMAIL_FROM` moved off `resend.dev`
+- [ ] `EMAIL_FROM` is an address on that verified subdomain — there is no default
+      sender, so a missing or unverified value fails the send rather than quietly
+      delivering from somewhere else
 - [ ] All secrets pushed with `wrangler secret put`
 - [ ] ⚠️ **Build with production environment values, not `.env.local`.** `robots.txt`
-      and `sitemap.xml` are prerendered, so `NEXT_PUBLIC_SITE_URL` is baked in at
-      build time — building with the localhost value ships a sitemap pointing at
-      `http://localhost:3000`. `wrangler secret put` sets *runtime* values only
+      and `sitemap.xml` are prerendered and `metadataBase` in `src/app/layout.tsx`
+      is read at module load, so `NEXT_PUBLIC_SITE_URL` is baked in at build time —
+      building with the localhost value ships a sitemap *and every canonical tag*
+      pointing at `http://localhost:3000`. `wrangler secret put` sets *runtime*
+      values only
+- [ ] Search Console: property added, `sitemap.xml` submitted, URL Inspection run
+      live against `/`, `/?lang=zh-Hant` and `/explore`; International Targeting
+      reports no `hreflang` errors
 - [ ] `npm run preflight` clean against production values
 - [ ] `npm run typecheck && npm run lint && npm test` clean
 - [ ] Test digest received, checked in Gmail for both `List-Unsubscribe` forms,
