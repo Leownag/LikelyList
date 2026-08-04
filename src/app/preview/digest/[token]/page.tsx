@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyToken } from "@/lib/tokens";
+import { PREVIEW_TOKEN_MAX_AGE_MS, verifyToken } from "@/lib/tokens";
 import { buildDigest } from "@/lib/digest/build";
 import { digestWindow, localDateString } from "@/lib/time";
 import { Card, EmptyState, ButtonLink } from "@/components/ui";
@@ -29,8 +29,22 @@ export default async function DigestPreviewPage({
   const { token } = await params;
   const env = readEnv();
 
-  const verified = await verifyToken(env.unsubscribeHmacSecret, "preview", token);
-  if (!verified) notFound();
+  const verified = await verifyToken(env.unsubscribeHmacSecret, "preview", token, {
+    maxAgeMs: PREVIEW_TOKEN_MAX_AGE_MS,
+  });
+
+  if (!verified) {
+    // Verified a second time without the age limit purely to tell "expired"
+    // apart from "forged". An old inbox link deserves an explanation and a way
+    // back in, not a bare 404.
+    const expired = await verifyToken(
+      env.unsubscribeHmacSecret,
+      "preview",
+      token,
+    );
+    if (!expired) notFound();
+    return <ExpiredLink siteUrl={env.siteUrl} />;
+  }
 
   const supabase = createAdminClient(env);
 
@@ -217,12 +231,42 @@ export default async function DigestPreviewPage({
           ). Ticketmaster does not publish billing order, so acts that cannot be
           identified from the event title are listed as sharing the bill.
         </p>
-        <p className="mt-3">
+        <p className="mt-3 flex flex-wrap gap-4">
+          <a className="underline hover:text-muted" href="/privacy">
+            Privacy
+          </a>
           <a className="underline hover:text-muted" href={digest.unsubscribeUrl}>
             Unsubscribe from the weekly email
           </a>
         </p>
       </footer>
+    </main>
+  );
+}
+
+/**
+ * Shown when the signature is good but the link is older than the token window.
+ *
+ * These links expose which cities and artists someone follows, so they stop
+ * working after a week — a forwarded or leaked email should not stay a readable
+ * window into an account indefinitely.
+ */
+function ExpiredLink({ siteUrl }: { siteUrl: string }) {
+  return (
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-16">
+      <Wordmark href={null} />
+      <PixelRule className="mt-6" />
+      <h1 className="mt-8 text-2xl font-semibold tracking-tight">
+        This link has expired
+      </h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        Links from the weekly email stop working after seven days, so an old
+        message can&apos;t keep showing what you follow. Sign in to see this
+        week&apos;s picks instead.
+      </p>
+      <div className="mt-6">
+        <ButtonLink href={`${siteUrl}/app`}>Open likelylist</ButtonLink>
+      </div>
     </main>
   );
 }
