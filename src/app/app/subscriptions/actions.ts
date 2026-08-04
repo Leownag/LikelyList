@@ -6,73 +6,124 @@ import { createClient, requireUser } from "@/lib/supabase/server";
 /**
  * Subscription and preference mutations.
  *
- * Server actions rather than route handlers: these are simple toggles driven
- * from a form, and running them through the request-scoped Supabase client
- * means RLS enforces ownership rather than this code having to.
+ * One action commits the whole selection rather than one per click. Per-click
+ * actions meant a server round-trip and a `revalidatePath` on every chip, which
+ * is what made the list flicker and jump; they also made "change three things and
+ * change your mind" impossible.
+ *
+ * Everything goes through the request-scoped Supabase client, so RLS enforces
+ * ownership rather than this code having to.
  */
 
-export async function toggleCity(cityId: number) {
+export type SaveResult = {
+  cities: number;
+  genres: number;
+};
+
+export async function saveSelections(input: {
+  cityIds: number[];
+  genreIds: number[];
+}): Promise<SaveResult> {
   const user = await requireUser();
   const supabase = await createClient();
 
-  const { data: existing } = await supabase
-    .from("subscriptions")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("city_id", cityId)
-    .maybeSingle();
+  const wantedCities = new Set(input.cityIds.filter(Number.isInteger));
+  const wantedGenres = new Set(input.genreIds.filter(Number.isInteger));
 
-  if (existing) {
-    await supabase.from("subscriptions").delete().eq("id", existing.id);
-  } else {
-    await supabase
-      .from("subscriptions")
-      .insert({ user_id: user.id, city_id: cityId });
+  // --- Cities ---------------------------------------------------------------
+  const { data: existingCityRows } = await supabase
+    .from("subscriptions")
+    .select("id, city_id")
+    .eq("user_id", user.id);
+
+  const existingCities = new Map(
+    ((existingCityRows ?? []) as { id: number; city_id: number }[]).map((row) => [
+      row.city_id,
+      row.id,
+    ]),
+  );
+
+  const cityIdsToDelete = [...existingCities.entries()]
+    .filter(([cityId]) => !wantedCities.has(cityId))
+    .map(([, rowId]) => rowId);
+
+  const citiesToInsert = [...wantedCities].filter(
+    (cityId) => !existingCities.has(cityId),
+  );
+
+  if (cityIdsToDelete.length > 0) {
+    await supabase.from("subscriptions").delete().in("id", cityIdsToDelete);
+  }
+  if (citiesToInsert.length > 0) {
+    await supabase.from("subscriptions").insert(
+      citiesToInsert.map((cityId) => ({ user_id: user.id, city_id: cityId })),
+    );
   }
 
-  revalidatePath("/app/subscriptions");
-  revalidatePath("/app");
-}
-
-/**
- * Turns a genre on or off.
- *
- * Turning one off records an explicit row with weight 0 rather than deleting it.
- * That distinction matters: feed processing only ever inserts a genre when the
- * user has *no* row for it, so a zero-weight row is a permanent opt-out. If
- * switching off simply deleted the row, the next flyer of that genre would
- * quietly turn it back on, and a user who said "not metal" would keep getting
- * metal.
- */
-export async function toggleGenre(genreId: number) {
-  const user = await requireUser();
-  const supabase = await createClient();
-
-  const { data: existing } = await supabase
+  // --- Genres ---------------------------------------------------------------
+  //
+  // Deselecting writes an explicit weight-0 row instead of deleting, because
+  // feed processing only inserts a genre when the user has *no* row for it. A
+  // zero-weight row is therefore a permanent opt-out; deleting would let the next
+  // flyer of that genre quietly switch it back on.
+  const { data: existingPrefRows } = await supabase
     .from("genre_prefs")
-    .select("id, weight")
-    .eq("user_id", user.id)
-    .eq("genre_id", genreId)
-    .maybeSingle();
+    .select("id, genre_id, weight")
+    .eq("user_id", user.id);
 
-  const turningOn = !existing || existing.weight === 0;
+  const existingPrefs = new Map(
+    ((existingPrefRows ?? []) as {
+      id: number;
+      genre_id: number;
+      weight: number;
+    }[]).map((row) => [row.genre_id, row]),
+  );
 
-  if (existing) {
+  const prefsToInsert: { user_id: string; genre_id: number; source: "explicit"; weight: number }[] = [];
+  const idsToEnable: number[] = [];
+  const idsToDisable: number[] = [];
+
+  for (const genreId of wantedGenres) {
+    const existing = existingPrefs.get(genreId);
+    if (!existing) {
+      prefsToInsert.push({
+        user_id: user.id,
+        genre_id: genreId,
+        source: "explicit",
+        weight: 1,
+      });
+    } else if (existing.weight === 0) {
+      idsToEnable.push(existing.id);
+    }
+  }
+
+  for (const [genreId, existing] of existingPrefs) {
+    if (!wantedGenres.has(genreId) && existing.weight > 0) {
+      idsToDisable.push(existing.id);
+    }
+  }
+
+  if (prefsToInsert.length > 0) {
+    await supabase.from("genre_prefs").insert(prefsToInsert);
+  }
+  if (idsToEnable.length > 0) {
     await supabase
       .from("genre_prefs")
-      .update({ weight: turningOn ? 1 : 0, source: "explicit" })
-      .eq("id", existing.id);
-  } else {
-    await supabase.from("genre_prefs").insert({
-      user_id: user.id,
-      genre_id: genreId,
-      source: "explicit",
-      weight: 1,
-    });
+      .update({ weight: 1, source: "explicit" })
+      .in("id", idsToEnable);
+  }
+  if (idsToDisable.length > 0) {
+    await supabase
+      .from("genre_prefs")
+      .update({ weight: 0, source: "explicit" })
+      .in("id", idsToDisable);
   }
 
+  // Revalidated once, after everything, rather than per toggle.
   revalidatePath("/app/subscriptions");
   revalidatePath("/app");
+
+  return { cities: wantedCities.size, genres: wantedGenres.size };
 }
 
 export async function removeArtistPref(artistPrefId: number) {
@@ -87,4 +138,3 @@ export async function removeArtistPref(artistPrefId: number) {
 
   revalidatePath("/app/subscriptions");
 }
-
