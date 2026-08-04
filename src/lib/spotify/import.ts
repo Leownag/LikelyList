@@ -122,29 +122,40 @@ export async function importTopArtists(
   return { status: "imported", artistCount: written };
 }
 
-async function writeArtistPrefs(
-  supabase: AdminClient,
+export type ArtistPrefRow = {
+  user_id: string;
+  name: string;
+  normalized_name: string;
+  tm_attraction_id: null;
+  score: number;
+  source: "spotify";
+  last_seen_at: string;
+};
+
+/**
+ * Spotify's ordered list → rows ready to upsert.
+ *
+ * Pure and exported so the two things that can go wrong here are testable without a
+ * database:
+ *
+ *  - **Duplicates.** Two Spotify entries can normalise to the same key ("Sigur Rós"
+ *    and "Sigur Ros"), and `artist_prefs` is unique on (user_id, normalized_name). A
+ *    duplicate inside one upsert makes Postgres reject the entire statement, not the
+ *    row — so all fifty artists would be lost to one collision.
+ *  - **The score taper.** It has to stay inside its band no matter how many artists
+ *    come back, and must never reach the score a hand-typed artist gets.
+ */
+export function buildArtistRows(
   userId: string,
   artists: { id: string; name: string }[],
-): Promise<number> {
-  if (artists.length === 0) return 0;
-
-  // Deduplicate on the normalised name, not the Spotify id: two Spotify entries can
-  // normalise to the same key, and `artist_prefs` is unique on (user_id,
-  // normalized_name) — a duplicate inside one upsert makes Postgres reject the whole
-  // statement rather than the row.
+  now = new Date().toISOString(),
+): ArtistPrefRow[] {
   const seen = new Set<string>();
-  const rows: {
-    user_id: string;
-    name: string;
-    normalized_name: string;
-    tm_attraction_id: null;
-    score: number;
-    source: "spotify";
-    last_seen_at: string;
-  }[] = [];
+  const rows: ArtistPrefRow[] = [];
 
-  const now = new Date().toISOString();
+  // Spread across the band by position in Spotify's own ordering. Computed from the
+  // input length rather than an assumed 50, because a new account can come back with
+  // three artists and would otherwise get three near-identical scores.
   const step =
     artists.length > 1 ? (TOP_SCORE - BOTTOM_SCORE) / (artists.length - 1) : 0;
 
@@ -166,6 +177,17 @@ async function writeArtistPrefs(
     });
   });
 
+  return rows;
+}
+
+async function writeArtistPrefs(
+  supabase: AdminClient,
+  userId: string,
+  artists: { id: string; name: string }[],
+): Promise<number> {
+  if (artists.length === 0) return 0;
+
+  const rows = buildArtistRows(userId, artists);
   if (rows.length === 0) return 0;
 
   // Which of these already exist, and how they got there. An `explicit` row is left
