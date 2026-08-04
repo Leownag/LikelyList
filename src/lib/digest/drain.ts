@@ -157,6 +157,10 @@ export async function drainDigestQueue(
   const { data: purged } = await supabase.rpc("purge_expired_events");
   if (typeof purged === "number") result.eventsPurged = purged;
 
+  // Unconfirmed anonymous signups are swept on the same pass rather than getting
+  // a cron trigger of their own — they are a waiting room, not a queue.
+  await supabase.rpc("purge_expired_pending_subscriptions");
+
   for (const runId of new Set(jobs.map((job) => job.run_id))) {
     const { data: finalized } = await supabase.rpc("finalize_digest_run", {
       p_run_id: runId,
