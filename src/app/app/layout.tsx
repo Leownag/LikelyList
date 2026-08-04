@@ -5,6 +5,10 @@ import { PixelRule } from "@/components/pixel";
 
 const NAV = [
   { href: "/app", label: "Overview" },
+  // My feed before the settings that shape it: the reader came to see shows, not to
+  // administer a filter.
+  { href: "/app/feed", label: "My feed" },
+  { href: "/app/pinned", label: "Pinned" },
   { href: "/app/subscriptions", label: "Cities & genres" },
   { href: "/app/feeds", label: "Feeds" },
   // Outside /app, but reachable from here on purpose: /explore was linked only

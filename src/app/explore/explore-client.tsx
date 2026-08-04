@@ -6,6 +6,7 @@ import { PixelDot, PixelRule } from "@/components/pixel";
 import { CityTypeahead } from "@/components/city-typeahead";
 import { ServiceLink } from "@/components/service-icon";
 import { AddToCalendar } from "@/components/add-to-calendar";
+import { PinButton } from "@/components/pin-button";
 import {
   AnonymousSubscribe,
   type SubscribeCity,
@@ -32,10 +33,16 @@ type Mode = "city" | "zip";
 export function ExploreClient({
   cities,
   genres,
+  signedIn,
+  pinnedIds,
 }: {
   cities: SubscribeCity[];
   genres: SubscribeGenre[];
+  signedIn: boolean;
+  /** Already-pinned event ids, so the button starts in the right state. */
+  pinnedIds: string[];
 }) {
+  const alreadyPinned = new Set(pinnedIds);
   const [mode, setMode] = useState<Mode>("city");
   const [postalCode, setPostalCode] = useState("");
   // Deliberately not exposed before the first search. Someone arriving has no way
@@ -318,17 +325,41 @@ export function ExploreClient({
                           {/* Beside the date rather than at the bottom of the card:
                               the moment somebody decides they can make a date is the
                               moment they want it in their calendar. */}
-                          <AddToCalendar
-                            event={{
-                              title: event.name,
-                              localDate: event.localDate,
-                              localTime: event.localTime,
-                              timezone: event.timezone,
-                              venueName: event.venueName,
-                              cityLabel: event.cityLabel,
-                              url: event.url,
-                            }}
-                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <AddToCalendar
+                              event={{
+                                title: event.name,
+                                localDate: event.localDate,
+                                localTime: event.localTime,
+                                timezone: event.timezone,
+                                venueName: event.venueName,
+                                cityLabel: event.cityLabel,
+                                url: event.url,
+                              }}
+                            />
+                            <PinButton
+                              signedIn={signedIn}
+                              initiallyPinned={alreadyPinned.has(event.id)}
+                              event={{
+                                tmEventId: event.id,
+                                name: event.name,
+                                url: event.url,
+                                localDate: event.localDate || null,
+                                localTime: event.localTime,
+                                timezone: event.timezone,
+                                venueName: event.venueName,
+                                cityLabel: event.cityLabel,
+                                imageUrl: event.imageUrl,
+                                genreName: event.genreName,
+                                performers: event.performers
+                                  .slice(0, 12)
+                                  .map((performer) => ({
+                                    name: performer.name,
+                                    isHeadliner: performer.isHeadliner,
+                                  })),
+                              }}
+                            />
+                          </div>
                         </div>
                         <h2 className="mt-1.5 text-base font-semibold tracking-tight">
                           {event.url ? (

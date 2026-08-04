@@ -2,6 +2,7 @@ import { ButtonLink } from "@/components/ui";
 import { PixelMosaic, PixelRule } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { readEnv } from "@/lib/env";
 import type { City, Genre } from "@/lib/db";
 import { ExploreClient } from "./explore-client";
@@ -19,6 +20,12 @@ export const metadata = {
 
 export default async function ExplorePage() {
   const { cities, genres } = await loadPickers();
+
+  // Pinning needs a session, so the page asks once and the client renders the button
+  // only when there is one — a row of buttons that bounce to /login is a worse answer
+  // than no buttons for somebody who came here precisely to avoid an account.
+  const user = await getUser();
+  const pinnedIds = user ? await loadPinnedIds() : [];
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-10">
@@ -65,7 +72,12 @@ export default async function ExplorePage() {
             seeded on this deployment.
           </p>
         ) : (
-          <ExploreClient cities={cities} genres={genres} />
+          <ExploreClient
+            cities={cities}
+            genres={genres}
+            signedIn={Boolean(user)}
+            pinnedIds={pinnedIds}
+          />
         )}
       </div>
 
@@ -130,5 +142,23 @@ async function loadPickers(): Promise<{
     };
   } catch {
     return { cities: [], genres: [] };
+  }
+}
+
+/**
+ * Which events this reader has already pinned.
+ *
+ * Through the request-scoped client, so RLS scopes it to them without this code
+ * passing a user id — and it returns ids only, because that is all the button needs
+ * to start in the right state.
+ */
+async function loadPinnedIds(): Promise<string[]> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.from("pinned_events").select("tm_event_id");
+    return ((data ?? []) as { tm_event_id: string }[]).map((row) => row.tm_event_id);
+  } catch {
+    // A pin state that fails to load should cost an un-highlighted button, not the page.
+    return [];
   }
 }

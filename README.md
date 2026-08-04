@@ -362,6 +362,8 @@ them one at a time, in order:
     before it, five tables only ever grew.
 12. `0012_spotify_links.sql` — the Spotify connection table, and a third
     `pref_source` value. Only needed if you configure Spotify.
+13. `0013_pins.sql` — `pinned_events`, with per-user RLS policies rather than the
+    deny-all the caches use.
 
 Run them separately rather than as one paste, so a failure names the file that
 failed. They are one-shot scripts — `create table` / `create policy` without
@@ -754,7 +756,7 @@ Ordered so nothing waits on something later in the list.
 - [ ] Workers Paid active on the Cloudflare account
 - [ ] Nameservers pointed at Cloudflare, zone shows **Active**
 - [ ] DNSSEC disabled at the registrar *before* the nameserver switch
-- [ ] Migrations `0001`–`0012` all applied
+- [ ] Migrations `0001`–`0013` all applied
 - [ ] `npm run seed:cities`, `npm run seed:genres` and `npm run seed:places` run
 - [ ] YouTube Data API v3 enabled and its key set (no OAuth client needed)
 - [ ] ⚠️ **Supabase Auth → SMTP set to Resend.** The built-in sender is rate
@@ -815,7 +817,8 @@ src/
     robots.ts sitemap.ts     Keep token-bearing URLs out of search indexes
     login/                   One email field. No password, by design
     auth/callback/           Verifies both an OAuth `code` and a magic-link hash
-    app/                     Signed-in area: overview, subscriptions, feeds, settings
+    app/                     Signed-in area: feed, pinned, subscriptions, feeds,
+                             settings
     api/                     feeds, explore, subscribe, artist search, cron,
                              inbound unsubscribe
   components/
