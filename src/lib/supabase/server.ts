@@ -28,8 +28,11 @@ export async function createClient() {
             }
           } catch {
             // Server components cannot write cookies. That is expected and
-            // harmless: proxy.ts has already refreshed the session for this
-            // request, so there is nothing to persist here.
+            // harmless: there is no proxy.ts to refresh the session server-side
+            // (the Cloudflare adapter cannot run one — see README), so refresh
+            // happens in components/session-sync.tsx and there is nothing to
+            // persist here. Route handlers and server actions, which *can* write
+            // cookies, do not take this branch.
           }
         },
       },
@@ -62,8 +65,8 @@ export async function requireUser() {
  * The signed-in user plus their profile row.
  *
  * The profile is created by a database trigger on auth.users, but a brand-new
- * OAuth account can in principle reach a page before that row is visible, so
- * this backfills rather than assuming.
+ * account can in principle reach a page before that row is visible, so this
+ * backfills rather than assuming.
  */
 export async function requireProfile(): Promise<{
   userId: string;

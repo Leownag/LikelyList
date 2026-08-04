@@ -57,7 +57,10 @@ export async function POST(request: NextRequest) {
     standalonePage({
       title: i18n.t("unsubscribe.done.title"),
       body: i18n.t("unsubscribe.done.body"),
-      linkHref: `${env.siteUrl}/app/settings`,
+      // Via /login: this page is opened from an email, in a browser that most
+      // likely holds no session, and /app/settings alone would drop the reader on
+      // a bare sign-in page having forgotten where they were going.
+      linkHref: `${env.siteUrl}/login?next=${encodeURIComponent("/app/settings")}`,
       linkLabel: i18n.t("unsubscribe.done.link"),
       ...chrome(env.siteUrl, i18n),
     }),

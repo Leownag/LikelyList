@@ -161,7 +161,23 @@ export async function requestSubscription(
 }
 
 export type ConfirmOutcome =
-  | { status: "confirmed"; email: string; cityName: string | null; genreCount: number }
+  | {
+      status: "confirmed";
+      email: string;
+      cityName: string | null;
+      genreCount: number;
+      /**
+       * A one-shot token that signs this person straight in, or null if minting it
+       * failed.
+       *
+       * They have just proved they hold the mailbox by clicking a link from it,
+       * which is exactly the evidence a magic link asks for — so sending them to
+       * /login to type the same address and wait for a second email would be asking
+       * for the same proof twice. The caller redirects through /auth/callback with
+       * this instead.
+       */
+      signInTokenHash: string | null;
+    }
   | { status: "expired" }
   | { status: "invalid" }
   | { status: "error"; reason: string };
@@ -265,16 +281,45 @@ export async function confirmSubscription(
     email: pending.email,
     cityName: city?.name ?? null,
     genreCount: genreIds.length,
+    signInTokenHash: await mintSignInToken(supabase, pending.email),
   };
+}
+
+/**
+ * A `token_hash` that /auth/callback can verify, minted without sending anything.
+ *
+ * `generateLink` exists for projects that deliver their own mail: it returns the
+ * hashed token and does **not** email anybody, which is the property this depends
+ * on — a second message arriving here would be worse than the extra click it
+ * replaces.
+ *
+ * Returns null rather than throwing. Failing to mint a convenience token must not
+ * undo a confirmation that has already been written; the caller falls back to the
+ * ordinary "go and sign in" page.
+ */
+async function mintSignInToken(
+  supabase: AdminClient,
+  email: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+    });
+    if (error) return null;
+    return data.properties?.hashed_token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * The auth user for this address, creating one if needed.
  *
  * `email_confirm: true` is correct here and only here: clicking the confirmation
- * link is proof of control of the mailbox. It also matters for later — a confirmed
- * address is what lets Supabase attach a Google identity to this same user instead
- * of refusing or forking it.
+ * link is proof of control of the mailbox, which is the same evidence a magic link
+ * asks for. Marking it confirmed is also what lets the account be signed into
+ * immediately afterwards without a second round trip to the inbox.
  */
 async function findOrCreateUser(
   supabase: AdminClient,

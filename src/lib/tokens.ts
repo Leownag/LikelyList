@@ -24,7 +24,11 @@
  * `subscribe` is the double opt-in confirmation link. For that purpose the signed
  * subject is a `pending_subscriptions.id`, not a user id — there is no user yet.
  */
-export type TokenPurpose = "unsubscribe" | "preview" | "subscribe";
+export type TokenPurpose =
+  | "unsubscribe"
+  | "preview"
+  | "subscribe"
+  | "spotify";
 
 /** How long a "view in browser" link stays readable. */
 export const PREVIEW_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -34,6 +38,15 @@ export const PREVIEW_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * pending_subscriptions, so the row and the link stop working together.
  */
 export const SUBSCRIBE_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The OAuth `state` for a Spotify connect, which is a CSRF nonce and nothing else.
+ *
+ * Ten minutes, because it only has to survive one consent screen. A long-lived state
+ * is a replayable one, and unlike the other purposes here it is never emailed, so
+ * there is no inbox latency to allow for.
+ */
+export const SPOTIFY_STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 const encoder = new TextEncoder();
 

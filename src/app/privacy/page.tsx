@@ -57,8 +57,9 @@ export default function PrivacyPage() {
 
         <Section title="What we collect">
           <Definition term="Your email address">
-            Supplied when you sign up, either directly or by Google. It is used to
-            sign you in and to deliver the weekly digest. Nothing else.
+            The only thing you have to give us. It is used to deliver the weekly
+            digest and to sign you in &mdash; there is no password, so an emailed
+            link is the whole login. Nothing else.
           </Definition>
           <Definition term="Your cities and genres">
             The selections you make yourself. These decide what the weekly email
@@ -140,11 +141,10 @@ export default function PrivacyPage() {
             these are made once per city and shared across everyone following it,
             so a query is not attributable to you.
           </Definition>
-          <Definition term="Google / YouTube">
-            Provides video links, and Google is the identity provider if you sign in
-            with it. Because thumbnails and images in the email are loaded from
-            their original hosts, opening the email lets those hosts see a request
-            from your mail client.
+          <Definition term="YouTube">
+            Provides video links. Because thumbnails and images in the email are
+            loaded from their original hosts, opening the email lets those hosts see
+            a request from your mail client. No third party is used to sign you in.
           </Definition>
         </Section>
 

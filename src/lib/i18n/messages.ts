@@ -35,8 +35,8 @@ const en = {
   "subscribe.confirm.action": "Yes, subscribe me",
   "subscribe.done.title": "You're subscribed",
   "subscribe.done.body":
-    "The first digest goes out on Friday morning. To change cities or genres, add your listening history, or stop it, sign in with this same address.",
-  "subscribe.done.link": "Sign in and fine-tune it",
+    "The first digest goes out on Friday morning. To change cities or genres, add your listening history, or stop it, enter this same address and we'll email you a link — there is no password.",
+  "subscribe.done.link": "Fine-tune what it covers",
   "subscribe.expired.title": "That link has expired",
   "subscribe.expired.body":
     "Confirmation links last seven days. Ask for a new one from the home page and it will arrive in a moment.",
@@ -73,8 +73,8 @@ const es: Messages = {
   "subscribe.confirm.action": "Sí, suscríbeme",
   "subscribe.done.title": "Ya estás suscrito",
   "subscribe.done.body":
-    "El primer resumen sale el viernes por la mañana. Para cambiar ciudades o géneros, añadir tu historial de escucha, o detenerlo, inicia sesión con esta misma dirección.",
-  "subscribe.done.link": "Inicia sesión y ajústalo",
+    "El primer resumen sale el viernes por la mañana. Para cambiar ciudades o géneros, añadir tu historial de escucha, o detenerlo, introduce esta misma dirección y te enviaremos un enlace por correo — no hay contraseña.",
+  "subscribe.done.link": "Ajusta lo que incluye",
   "subscribe.expired.title": "Este enlace ha caducado",
   "subscribe.expired.body":
     "Los enlaces de confirmación duran siete días. Pide uno nuevo desde la página de inicio y llegará en un momento.",
@@ -108,8 +108,8 @@ const fr: Messages = {
   "subscribe.confirm.action": "Oui, abonnez-moi",
   "subscribe.done.title": "Vous êtes abonné",
   "subscribe.done.body":
-    "La première sélection part vendredi matin. Pour changer de villes ou de genres, ajouter votre historique d'écoute, ou l'arrêter, connectez-vous avec cette même adresse.",
-  "subscribe.done.link": "Se connecter et ajuster",
+    "La première sélection part vendredi matin. Pour changer de villes ou de genres, ajouter votre historique d'écoute, ou l'arrêter, saisissez cette même adresse et nous vous enverrons un lien par e-mail — il n'y a pas de mot de passe.",
+  "subscribe.done.link": "Ajuster ce qu'elle couvre",
   "subscribe.expired.title": "Ce lien a expiré",
   "subscribe.expired.body":
     "Les liens de confirmation sont valables sept jours. Demandez-en un nouveau depuis la page d'accueil, il arrivera dans un instant.",
@@ -143,8 +143,8 @@ const zhHant: Messages = {
   "subscribe.confirm.action": "是，訂閱我",
   "subscribe.done.title": "訂閱完成",
   "subscribe.done.body":
-    "第一封精選會在週五早上寄出。想更改城市或樂風、加入你的聽歌紀錄，或停止訂閱，用同一個信箱登入即可。",
-  "subscribe.done.link": "登入並調整設定",
+    "第一封精選會在週五早上寄出。想更改城市或樂風、加入你的聽歌紀錄，或停止訂閱，輸入同一個信箱，我們會寄一個連結給你——沒有密碼。",
+  "subscribe.done.link": "調整精選內容",
   "subscribe.expired.title": "這個連結已過期",
   "subscribe.expired.body":
     "確認連結的有效期是七天。回首頁重新索取一封，馬上就會寄到。",
