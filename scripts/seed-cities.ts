@@ -68,14 +68,83 @@ const CITIES: SeedCity[] = [
   { slug: "seattle", name: "Seattle", tm_city: "Seattle", state_code: "WA" },
 ];
 
+/**
+ * Coordinates for a city, averaged over the ZIP centroids Zippopotam returns.
+ *
+ * These are not decoration — they are what the search runs on. Ticketmaster ignores
+ * `radius` unless it is paired with coordinates, so a city with no latitude falls
+ * back to matching a venue's city *field*, which for Boston meant 21 events instead
+ * of the 85 within fifty miles. Anything one town over was invisible.
+ *
+ * Averaging every ZIP in the city lands ~3 miles from the true centre (Boston came
+ * out at 42.344,-71.008 against 42.360,-71.059). Irrelevant against a fifty-mile
+ * radius, and it beats hand-typing 44 pairs of coordinates that nobody would ever
+ * re-check.
+ *
+ * Returns null rather than throwing: a city that cannot be geocoded is still worth
+ * seeding, and the search degrades to the old narrower filter for that one city.
+ */
+async function geocodeCity(
+  city: SeedCity,
+): Promise<{ latitude: number; longitude: number } | null> {
+  const url = `https://api.zippopotam.us/us/${city.state_code.toLowerCase()}/${encodeURIComponent(
+    city.tm_city.toLowerCase(),
+  )}`;
+
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as {
+      places?: { latitude?: string; longitude?: string }[];
+    };
+    const points = (body.places ?? [])
+      .map((place) => ({
+        latitude: Number(place.latitude),
+        longitude: Number(place.longitude),
+      }))
+      .filter(
+        (point) =>
+          Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+      );
+
+    if (points.length === 0) return null;
+
+    return {
+      latitude:
+        points.reduce((sum, p) => sum + p.latitude, 0) / points.length,
+      longitude:
+        points.reduce((sum, p) => sum + p.longitude, 0) / points.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const supabase = adminClientFromProcessEnv();
 
-  const rows = CITIES.map((city, index) => ({
-    ...city,
-    country_code: "US",
-    sort_order: index,
-  }));
+  const missing: string[] = [];
+  const rows = [];
+
+  // Sequential rather than in parallel: this is a one-off admin script hitting a
+  // free service that asks for nothing in return, and 44 polite requests cost a few
+  // seconds.
+  for (const [index, city] of CITIES.entries()) {
+    const point = await geocodeCity(city);
+    if (!point) missing.push(`${city.name}, ${city.state_code}`);
+
+    rows.push({
+      ...city,
+      country_code: "US",
+      sort_order: index,
+      latitude: point?.latitude ?? null,
+      longitude: point?.longitude ?? null,
+    });
+  }
 
   const { error } = await supabase
     .from("cities")
@@ -83,7 +152,16 @@ async function main() {
 
   if (error) throw new Error(`Upsert failed: ${error.message}`);
 
-  console.log(`Seeded ${rows.length} cities.`);
+  const located = rows.length - missing.length;
+  console.log(`Seeded ${rows.length} cities, ${located} with coordinates.`);
+
+  if (missing.length > 0) {
+    console.warn(
+      `\nNo coordinates for: ${missing.join("; ")}\n` +
+        "Those will fall back to Ticketmaster's narrower city-name match, which\n" +
+        "returns far fewer events. Re-run, or add the pair by hand.",
+    );
+  }
 }
 
 main().catch((error) => {

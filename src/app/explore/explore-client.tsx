@@ -3,13 +3,20 @@
 import { useState } from "react";
 import { Button, Card, EmptyState, Input, Label, Notice, Select } from "@/components/ui";
 import { PixelDot, PixelRule } from "@/components/pixel";
+import { CityTypeahead } from "@/components/city-typeahead";
+import { ServiceLink } from "@/components/service-icon";
 import {
   AnonymousSubscribe,
   type SubscribeCity,
   type SubscribeGenre,
 } from "@/components/anonymous-subscribe";
 import { useDetectedCitySlug } from "@/lib/use-detected-region";
-import type { ExploreResponse } from "@/lib/explore/types";
+import {
+  RADIUS_CHOICES,
+  type ExploreResponse,
+  type PlacePoint,
+  type PlaceSuggestion,
+} from "@/lib/explore/types";
 
 type Mode = "city" | "zip";
 
@@ -30,6 +37,10 @@ export function ExploreClient({
 }) {
   const [mode, setMode] = useState<Mode>("city");
   const [postalCode, setPostalCode] = useState("");
+  // Deliberately not exposed before the first search. Someone arriving has no way
+  // to know whether fifty miles is too wide or too narrow for where they live;
+  // once there is a count on screen the question becomes answerable.
+  const [radiusMiles, setRadiusMiles] = useState<number>(50);
   const [genreIds, setGenreIds] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,16 +49,32 @@ export function ExploreClient({
 
   // Derived rather than copied into state on mount: an effect that setStates the
   // detected value causes a cascading render (react-hooks/set-state-in-effect).
+  //
+  // The search runs on coordinates, so what is held here is a point rather than a
+  // city slug — that is what lets the box offer any of 32,329 US places instead of
+  // the 43 the digest curates. The detected city seeds it because those rows carry
+  // coordinates too.
   const detectedCitySlug = useDetectedCitySlug();
-  const [chosenCitySlug, setChosenCitySlug] = useState<string | null>(null);
-  const citySlug =
-    chosenCitySlug ??
-    (cities.some((city) => city.slug === detectedCitySlug)
-      ? detectedCitySlug
-      : cities[0]?.slug) ??
-    "";
+  const [chosenPlace, setChosenPlace] = useState<PlaceSuggestion | null>(null);
 
-  async function search() {
+  const detectedCity =
+    cities.find((city) => city.slug === detectedCitySlug) ?? cities[0] ?? null;
+  const detectedPoint: PlacePoint | null =
+    detectedCity?.latitude != null && detectedCity?.longitude != null
+      ? {
+          name: detectedCity.name,
+          stateCode: detectedCity.stateCode,
+          latitude: Number(detectedCity.latitude),
+          longitude: Number(detectedCity.longitude),
+        }
+      : null;
+
+  const place: PlacePoint | null = chosenPlace ?? detectedPoint;
+  // Still needed for the subscribe box, which subscribes by curated city.
+  const citySlug = detectedCity?.slug ?? "";
+
+  async function search(overrideRadius?: number) {
+    const radius = overrideRadius ?? radiusMiles;
     setBusy(true);
     setError(null);
     setShowSubscribe(false);
@@ -57,9 +84,15 @@ export function ExploreClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          citySlug: mode === "city" ? citySlug : null,
+          latitude: mode === "city" ? place?.latitude : undefined,
+          longitude: mode === "city" ? place?.longitude : undefined,
+          placeLabel:
+            mode === "city" && place
+              ? [place.name, place.stateCode].filter(Boolean).join(", ")
+              : undefined,
           postalCode: mode === "zip" ? postalCode.trim() : null,
           genreIds: [...genreIds],
+          radiusMiles: radius,
         }),
       });
 
@@ -76,7 +109,12 @@ export function ExploreClient({
         window: payload.window ?? "",
         totalBeforeGenreFilter:
           payload.totalBeforeGenreFilter ?? payload.events.length,
+        placeLabel: payload.placeLabel ?? null,
+        radiusMiles: payload.radiusMiles ?? null,
       });
+      // Kept in sync with what the server actually used, so the control reflects
+      // the result on screen rather than the reader's last click.
+      if (payload.radiusMiles) setRadiusMiles(payload.radiusMiles);
     } catch {
       setError("Could not reach the server. Check your connection.");
     } finally {
@@ -104,18 +142,11 @@ export function ExploreClient({
           {mode === "city" ? (
             <div className="min-w-48 flex-1">
               <Label htmlFor="explore-city">City</Label>
-              <Select
+              <CityTypeahead
                 id="explore-city"
-                value={citySlug}
-                onChange={(event) => setChosenCitySlug(event.target.value)}
-              >
-                {cities.map((city) => (
-                  <option key={city.slug} value={city.slug}>
-                    {city.name}
-                    {city.stateCode ? `, ${city.stateCode}` : ""}
-                  </option>
-                ))}
-              </Select>
+                value={place}
+                onChange={setChosenPlace}
+              />
             </div>
           ) : (
             <div className="min-w-48 flex-1">
@@ -131,7 +162,9 @@ export function ExploreClient({
             </div>
           )}
 
-          <Button onClick={search} disabled={busy}>
+          {/* Wrapped rather than passed directly: `search` now takes an optional
+              radius, and onClick would hand it a MouseEvent. */}
+          <Button onClick={() => void search()} disabled={busy}>
             {busy ? "Searching…" : "Show me this week"}
           </Button>
         </div>
@@ -185,6 +218,60 @@ export function ExploreClient({
               </Button>
             ) : null}
           </div>
+
+          {/*
+            Advanced search, and only now.
+            Distance is the one control that cannot be judged in advance: fifty miles
+            is generous in New England and barely leaves the county in Texas. Showing
+            it beside a result count turns it into a question the reader can actually
+            answer — "85 shows, want to look further?" — and it also explains where
+            the search was centred, which is the only way a mistyped ZIP is ever
+            noticed.
+          */}
+          {result.radiusMiles ? (
+            <details className="mt-3 border border-border bg-surface-raised">
+              <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-text">
+                Advanced — searching within {result.radiusMiles} miles
+                {result.placeLabel ? ` of ${result.placeLabel}` : ""}
+              </summary>
+              <div className="border-t border-border px-3 py-3">
+                <Label>Distance</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {RADIUS_CHOICES.map((miles) => {
+                    const active = miles === result.radiusMiles;
+                    return (
+                      <button
+                        key={miles}
+                        type="button"
+                        aria-pressed={active}
+                        disabled={busy}
+                        // Re-runs the search immediately rather than waiting for the
+                        // main button: changing the distance IS the new search, and a
+                        // control that silently does nothing until you press
+                        // something else is the more confusing option.
+                        onClick={() => {
+                          setRadiusMiles(miles);
+                          void search(miles);
+                        }}
+                        className={`border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                          active
+                            ? "border-accent bg-accent text-accent-ink"
+                            : "border-border bg-surface text-muted hover:border-border-strong hover:text-text"
+                        }`}
+                      >
+                        {miles} mi
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-xs text-faint">
+                  Ticketmaster only honours a radius around a point, so this is what
+                  actually decides how much you see — a city name on its own matches
+                  the venue&apos;s own city field and misses the next town over.
+                </p>
+              </div>
+            </details>
+          ) : null}
 
           <PixelRule className="mt-3" />
 
@@ -262,22 +349,24 @@ export function ExploreClient({
                                 }
                               />
                               <span className="text-text">{performer.name}</span>
-                              <a
+                              {/*
+                                The official marks, via the shared component, rather
+                                than "YT" and "SP" — which nobody has to decode, and
+                                which the brand guidelines would rather we did not
+                                use in place of the logos. It degrades to the service
+                                name alone until public/brand/ is populated, so the
+                                link is never broken.
+                              */}
+                              <ServiceLink
+                                service="youtube"
                                 href={performer.youtubeUrl}
-                                className="text-faint underline hover:text-muted"
-                                rel="noreferrer noopener"
-                                target="_blank"
-                              >
-                                YT
-                              </a>
-                              <a
+                                className="text-xs"
+                              />
+                              <ServiceLink
+                                service="spotify"
                                 href={performer.spotifyUrl}
-                                className="text-faint underline hover:text-muted"
-                                rel="noreferrer noopener"
-                                target="_blank"
-                              >
-                                SP
-                              </a>
+                                className="text-xs"
+                              />
                             </li>
                           ))}
                         </ul>

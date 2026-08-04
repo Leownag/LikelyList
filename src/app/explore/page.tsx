@@ -24,11 +24,13 @@ export default async function ExplorePage() {
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-10">
       <header className="flex items-center justify-between">
         <Wordmark />
+        {/* The subscribe box lives at the bottom of the results, attached to a
+            search someone has actually looked at, which is a better moment to ask
+            for an address than the top of an empty page. */}
         <nav className="flex items-center gap-2">
           <ButtonLink href="/login" variant="ghost">
             Sign in
           </ButtonLink>
-          <ButtonLink href="/login?mode=signup">Get YOUR feed</ButtonLink>
         </nav>
       </header>
 
@@ -102,17 +104,25 @@ async function loadPickers(): Promise<{
 
     const supabase = createAdminClient(env);
     const [citiesResult, genresResult] = await Promise.all([
-      supabase.from("cities").select("slug, name, state_code").order("sort_order"),
+      supabase
+        .from("cities")
+        .select("slug, name, state_code, latitude, longitude")
+        .order("sort_order"),
       supabase.from("genres").select("id, name").order("sort_order"),
     ]);
 
     return {
       cities: (
-        (citiesResult.data ?? []) as Pick<City, "slug" | "name" | "state_code">[]
+        (citiesResult.data ?? []) as Pick<
+          City,
+          "slug" | "name" | "state_code" | "latitude" | "longitude"
+        >[]
       ).map((city) => ({
         slug: city.slug,
         name: city.name,
         stateCode: city.state_code,
+        latitude: city.latitude,
+        longitude: city.longitude,
       })),
       genres: ((genresResult.data ?? []) as Pick<Genre, "id" | "name">[]).map(
         (genre) => ({ id: genre.id, name: genre.name }),

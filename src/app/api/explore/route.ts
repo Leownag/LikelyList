@@ -6,8 +6,10 @@ import { createTicketmasterClient } from "@/lib/ticketmaster/client";
 import { isSendableEvent, searchMusicEvents } from "@/lib/ticketmaster/events";
 import { pickImage, primaryClassification, resolveLineup } from "@/lib/ticketmaster/lineup";
 import { spotifySearchUrl, youtubeSearchUrl } from "@/lib/enrich/links";
+import { encodeGeohash } from "@/lib/geohash";
+import { geocodePostalCode } from "@/lib/geocode";
 import { digestWindow, formatEventDate, formatEventTime } from "@/lib/time";
-import type { City, Genre } from "@/lib/db";
+import type { Genre } from "@/lib/db";
 import type { ExploreEvent } from "@/lib/explore/types";
 
 /**
@@ -27,9 +29,32 @@ import type { ExploreEvent } from "@/lib/explore/types";
 const DAILY_EXPLORE_BUDGET = 800;
 const HOURLY_PER_VISITOR = 30;
 
+/**
+ * How far around the chosen point to look, in miles.
+ *
+ * Fifty, because that is what the question actually means. Somebody asking what is
+ * on near Boston will drive to Worcester for the right band, and `city=Boston`
+ * misses it — measured at 21 events for the city filter against 85 for this radius
+ * on the same week. A hundred miles returns more still, but starts reaching into
+ * Providence and Hartford, which are somebody else's city rather than a suburb of
+ * this one.
+ */
+const SEARCH_RADIUS_MILES = 50;
+
+/** Enough precision to place a metro centre; the radius does the rest. */
+const GEOHASH_PRECISION = 6;
+
 const BodySchema = z
   .object({
-    citySlug: z.string().max(64).nullable().default(null),
+    /**
+     * Where to search from, as a point. Sent instead of a city name because that is
+     * what Ticketmaster needs, and because it frees the picker from the 43 curated
+     * metros — any of the 32,329 Census places carries its own coordinates.
+     */
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    /** Display only, echoed back so the UI can say where it searched. */
+    placeLabel: z.string().max(120).optional(),
     postalCode: z
       .string()
       .trim()
@@ -37,10 +62,24 @@ const BodySchema = z
       .nullable()
       .default(null),
     genreIds: z.array(z.number().int()).max(20).default([]),
+    /**
+     * How far to look, in miles. Bounded rather than free-form: a 500-mile
+     * "nearby" is not a search anybody wants, and an unbounded value invites
+     * pulling a whole region through a quota-metered endpoint.
+     */
+    radiusMiles: z
+      .number()
+      .int()
+      .min(5)
+      .max(100)
+      .default(SEARCH_RADIUS_MILES),
   })
-  .refine((value) => Boolean(value.citySlug || value.postalCode), {
-    message: "Pick a city or enter a ZIP code.",
-  });
+  .refine(
+    (value) =>
+      Boolean(value.postalCode) ||
+      (value.latitude !== undefined && value.longitude !== undefined),
+    { message: "Pick a city or enter a ZIP code." },
+  );
 
 export async function POST(request: NextRequest) {
   const env = readEnv();
@@ -95,26 +134,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Resolve the city and the genre filter from our own tables.
-  const [cityResult, genresResult] = await Promise.all([
-    body.citySlug
-      ? supabase
-          .from("cities")
-          .select("id, name, tm_city, state_code, country_code")
-          .eq("slug", body.citySlug)
-          .maybeSingle<
-            Pick<City, "id" | "name" | "tm_city" | "state_code" | "country_code">
-          >()
-      : Promise.resolve({ data: null }),
-    supabase.from("genres").select("id, tm_genre_id, name"),
-  ]);
+  const { data: genreRows } = await supabase
+    .from("genres")
+    .select("id, tm_genre_id, name");
 
-  const city = cityResult.data;
-  if (body.citySlug && !city) {
-    return NextResponse.json({ error: "Unknown city." }, { status: 400 });
+  // Both paths end up as a point plus a radius, because that is the only shape
+  // Ticketmaster honours (see EventSearchParams.geoPoint for the numbers). A ZIP is
+  // geocoded; a place chosen from the picker already arrived as coordinates.
+  let centre: { latitude: number; longitude: number } | null = null;
+  let placeLabel: string | null = null;
+
+  if (body.postalCode) {
+    const located = await geocodePostalCode(supabase, body.postalCode);
+    if (!located) {
+      return NextResponse.json(
+        {
+          error:
+            "We couldn't place that ZIP code. Check it, or pick a city instead.",
+        },
+        { status: 400 },
+      );
+    }
+    centre = located;
+    placeLabel = [located.placeName, located.stateCode].filter(Boolean).join(", ");
+  } else if (body.latitude !== undefined && body.longitude !== undefined) {
+    centre = { latitude: body.latitude, longitude: body.longitude };
+    placeLabel = body.placeLabel ?? null;
   }
 
-  const allGenres = (genresResult.data ?? []) as Pick<
+  const allGenres = (genreRows ?? []) as Pick<
     Genre,
     "id" | "tm_genre_id" | "name"
   >[];
@@ -125,14 +173,32 @@ export async function POST(request: NextRequest) {
       .map((genre) => genre.tm_genre_id),
   );
 
+  // Unreachable given the schema's refine, but narrowing it here keeps the request
+  // builder honest rather than relying on a validator two hundred lines away.
+  if (!centre) {
+    return NextResponse.json(
+      { error: "Pick a city or enter a ZIP code." },
+      { status: 400 },
+    );
+  }
+
   const window = digestWindow(new Date(), "UTC");
 
   try {
     const client = createTicketmasterClient(env.ticketmasterApiKey);
     const found = await searchMusicEvents(client, {
-      city: city?.tm_city,
-      postalCode: body.postalCode ?? undefined,
-      countryCode: city?.country_code ?? "US",
+      // Always coordinates. The schema requires either a ZIP or a point, and both
+      // resolve to one, so there is no name-matching path left to fall back to —
+      // which is the point: `city` matched a venue's city field and missed the next
+      // town over.
+      geoPoint: encodeGeohash(
+        centre.latitude,
+        centre.longitude,
+        GEOHASH_PRECISION,
+      ),
+      radius: body.radiusMiles,
+      unit: "miles",
+      countryCode: "US",
       startDateTime: window.start,
       endDateTime: window.end,
       // One page. Somebody browsing does not need ten.
@@ -159,9 +225,7 @@ export async function POST(request: NextRequest) {
           timeLabel: formatEventTime(event.dates?.start?.localTime ?? null),
           localDate: event.dates?.start?.localDate ?? "",
           venueName: venue?.name ?? null,
-          cityLabel:
-            venue?.city?.name ??
-            [city?.name, city?.state_code].filter(Boolean).join(", "),
+          cityLabel: venue?.city?.name ?? placeLabel ?? "",
           imageUrl: pickImage(event.images, { maxWidth: 320, ratio: "16_9" }),
           genreName: genreId ? (nameByTmId.get(genreId) ?? null) : null,
           performers: resolveLineup(event).map(({ attraction, isHeadliner }) => ({
@@ -180,6 +244,10 @@ export async function POST(request: NextRequest) {
       window: `${window.startDate} … ${window.endDate}`,
       // So the UI can say "12 of 43 matched your genres" honestly.
       totalBeforeGenreFilter: found.filter(isSendableEvent).length,
+      // Echoed back so a ZIP search can show where it decided that was — the one
+      // way somebody notices they typed 02143 instead of 02134.
+      placeLabel,
+      radiusMiles: centre ? body.radiusMiles : null,
     });
   } catch (error) {
     return NextResponse.json(
