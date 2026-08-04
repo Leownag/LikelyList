@@ -39,7 +39,7 @@ export async function sendDigestEmail(
   }
 
   const { data, error } = await resend.emails.send({
-    from: env.emailFrom,
+    from: requireKey(env.emailFrom, "EMAIL_FROM", "sending the digest"),
     to: to ?? digest.email,
     subject: rendered.subject,
     html: rendered.html,
@@ -62,15 +62,14 @@ export async function sendDigestEmail(
 /**
  * Whether the sender looks usable.
  *
- * Worth checking before a run rather than discovering it 200 jobs in: without a
- * verified domain Resend will only deliver to the account owner's own address.
+ * Worth checking before a run rather than discovering it 200 jobs in. Whether the
+ * domain in EMAIL_FROM is actually verified cannot be read from here — a
+ * sending-only Resend key may not list domains — so that check lives in
+ * scripts/preflight.ts, which can be run with a full-access key.
  */
 export function describeSenderReadiness(env: AppEnv): string | null {
   if (!env.resendApiKey) return "RESEND_API_KEY is not set.";
   if (!env.emailFrom) return "EMAIL_FROM is not set.";
-  if (env.emailFrom.includes("resend.dev")) {
-    return "EMAIL_FROM still uses the resend.dev test sender, so delivery is limited to your own address. Verify a sending domain (a subdomain such as mail.<your-domain> is recommended) and update EMAIL_FROM.";
-  }
   if (!env.emailUnsubscribeMailto) {
     return "EMAIL_UNSUBSCRIBE_MAILTO is not set, so the mailto: form of List-Unsubscribe is missing — Outlook and iOS Mail will not show a native unsubscribe button.";
   }

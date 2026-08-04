@@ -165,7 +165,7 @@ export async function buildDigest(
   const { data: eventRows } = await supabase
     .from("events_cache")
     .select(
-      "geo_cell, tm_event_id, name, url, local_date, local_time, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions",
+      "geo_cell, tm_event_id, name, url, local_date, local_time, timezone, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions",
     )
     .in("geo_cell", cells)
     .gte("local_date", options.startDate)
@@ -205,10 +205,21 @@ export async function buildDigest(
     };
   }
 
-  // The venue's own city, falling back to whatever the reader called the place they
-  // subscribed to. A cell has no name of its own.
+  // What the reader called each cell they follow, for the rare row Ticketmaster leaves
+  // without a venue city.
+  const labelByCell = new Map(
+    subscriptions.map((row) => [
+      row.geo_cell,
+      [row.place_name, row.state_code].filter(Boolean).join(", "),
+    ]),
+  );
+
+  // The venue's own city, falling back to the label of the cell this row was cached
+  // for. A cell has no name of its own — but it does have the subscription that asked
+  // for it, which is a better answer than the reader's first place: labelling a
+  // Brooklyn show "Boston" because Boston is followed first is simply wrong.
   function cityLabelFor(row: CachedEvent): string {
-    return row.venue_city ?? subscriptionLabels[0] ?? "";
+    return row.venue_city ?? labelByCell.get(row.geo_cell) ?? "";
   }
 
   for (const row of events) {
@@ -227,6 +238,8 @@ export async function buildDigest(
       dateLabel: row.local_date ? formatEventDate(row.local_date) : "Date TBA",
       timeLabel: formatEventTime(row.local_time),
       localDate: row.local_date ?? "",
+      localTime: row.local_time,
+      timezone: row.timezone,
       venueName: row.venue_name,
       cityLabel,
       imageUrl: row.image_url,

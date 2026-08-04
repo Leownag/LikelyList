@@ -56,3 +56,22 @@ test("an onsale that has no usable date is null rather than invalid", () => {
     );
   }
 });
+
+test("the cached row carries a zone, so a pin from the feed can become a real instant", () => {
+  // The venue is where Ticketmaster usually puts it when `dates.timezone` is absent —
+  // 12 of 85 events on one Boston week. Without this the digest stored a wall clock
+  // with no anchor and "add to calendar" could only offer an all-day entry.
+  const row = toCachedEvent(
+    event({
+      _embedded: { venues: [{ name: "Roadrunner-Boston", timezone: "America/New_York" }] },
+    }),
+    CELL,
+    EXPIRES,
+  );
+
+  assert.equal(row.local_time, "20:00:00");
+  assert.equal(row.timezone, "America/New_York");
+
+  // Nothing anywhere: null, not a guess.
+  assert.equal(toCachedEvent(event(), CELL, EXPIRES).timezone, null);
+});

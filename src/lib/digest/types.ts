@@ -21,6 +21,15 @@ export type DigestEvent = {
   dateLabel: string;
   timeLabel: string | null;
   localDate: string;
+  /**
+   * The raw venue-local clock and zone behind `timeLabel`.
+   *
+   * The email only ever renders the label, so these are carried for the screen: My
+   * feed pins from this shape, and a pin without them becomes an all-day calendar
+   * entry for a show that has a start time.
+   */
+  localTime: string | null;
+  timezone: string | null;
   venueName: string | null;
   cityLabel: string;
   imageUrl: string | null;

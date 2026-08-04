@@ -1,7 +1,12 @@
 import type { TmClient } from "./client";
 import { DEEP_PAGING_LIMIT } from "./client";
 import { MUSIC_SEGMENT_ID, type TmEvent, type TmEventsResponse } from "./types";
-import { pickImage, primaryClassification, resolveLineup } from "./lineup";
+import {
+  eventTimezone,
+  pickImage,
+  primaryClassification,
+  resolveLineup,
+} from "./lineup";
 import type { CachedAttraction, CachedEvent } from "@/lib/db";
 
 /**
@@ -174,6 +179,7 @@ export function toCachedEvent(
     url: event.url ?? null,
     local_date: event.dates?.start?.localDate ?? null,
     local_time: event.dates?.start?.localTime ?? null,
+    timezone: eventTimezone(event),
     venue_name: venue?.name ?? null,
     venue_city: venue?.city?.name ?? null,
     venue_state: venue?.state?.stateCode ?? venue?.state?.name ?? null,
