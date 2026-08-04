@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "likelylist",
+
+  // Custom worker (see worker.ts): re-exports the OpenNext `fetch` handler and
+  // adds a `scheduled` handler. The OpenNext-generated worker only exports
+  // `fetch`, so a cron trigger cannot reach it without this indirection.
+  "main": "./worker.ts",
+
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "likelylist"
+    }
+  ],
+
+  "triggers": {
+    "crons": [
+      // Weekly run builder. Creates the digest run, refreshes the Ticketmaster
+      // event cache once per DISTINCT subscribed city, and enqueues one job per
+      // opted-in subscriber. Deliberately early in the UTC day: the drainer
+      // below decides *when* each subscriber actually receives their email,
+      // based on their own timezone. That keeps delivery at a sane local hour
+      // and sidesteps DST (cron expressions are always UTC).
+      "0 8 * * 5",
+
+      // Queue drainer. Sends the queued jobs in small batches whose local time
+      // has come, and purges expired event cache rows. Runs every 5 minutes so
+      // the pipeline is self-healing: if an invocation dies partway through,
+      // the next one picks up the remaining jobs. A cron with an interval below
+      // one hour gets 30s of CPU time on Workers Paid.
+      "*/5 * * * *"
+    ]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
