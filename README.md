@@ -76,7 +76,7 @@ exactly what only the pipeline should be able to do.
 fail differently:
 
 ```
-digest/plan.ts    once a week: query Ticketmaster per distinct city, cache
+digest/plan.ts    once a week: query Ticketmaster per distinct GRID CELL, cache
                   events, queue one job per subscriber with its own send_after
 digest/drain.ts   every 5 min: claim due jobs atomically, recover expired leases
 digest/build.ts   per subscriber: score cached events against their cities,
@@ -364,17 +364,37 @@ them one at a time, in order:
     `pref_source` value. Only needed if you configure Spotify.
 13. `0013_pins.sql` — `pinned_events`, with per-user RLS policies rather than the
     deny-all the caches use.
+14. `0014_subscribe_by_point.sql` — subscriptions become coordinates and
+    `events_cache` is re-keyed by grid cell. **Truncates `events_cache`**, which is
+    safe: it is a 36-hour scratch buffer the Friday run refills.
 
-Run them separately rather than as one paste, so a failure names the file that
-failed. They are one-shot scripts — `create table` / `create policy` without
-`if not exists` — so re-running one errors with "already exists". That is
-expected, not a problem.
+Run them one at a time, so a failure names the file that failed. They are one-shot
+scripts — `create table` / `create policy` without `if not exists` — so re-running one
+errors with "already exists". That is expected, not a problem.
 
-The Supabase CLI is not used here. `supabase db push` expects
-`<timestamp>_name.sql` filenames and a linked project, and `supabase start` needs
-Docker for a local Postgres — none of which buys anything for a handful of scripts
-run once against a single environment. Rename the files to the timestamp
-convention if CLI-managed migrations become worthwhile.
+Either paste them into the SQL editor, or use the CLI:
+
+```bash
+supabase link --project-ref <your-project-ref>
+```
+
+```bash
+for f in supabase/migrations/*.sql; do supabase db query --linked -f "$f"; done
+```
+
+`db query --linked` goes through the Management API, so it needs the access token from
+`supabase login` and **not** the database password. Note it is `db query`, not
+`db push`: `push` expects `<timestamp>_name.sql` filenames and its own migration
+history table, and these files are numbered `0001…` and applied once by hand. Renaming
+them to the timestamp convention is the change to make if CLI-managed migrations ever
+become worth the bookkeeping.
+
+Then seed the reference data — the schema alone leaves the city, genre and place
+pickers empty:
+
+```bash
+npm run seed:cities && npm run seed:genres && npm run seed:places
+```
 
 Afterwards, confirm the two things that are easy to get wrong:
 
@@ -756,7 +776,7 @@ Ordered so nothing waits on something later in the list.
 - [ ] Workers Paid active on the Cloudflare account
 - [ ] Nameservers pointed at Cloudflare, zone shows **Active**
 - [ ] DNSSEC disabled at the registrar *before* the nameserver switch
-- [ ] Migrations `0001`–`0013` all applied
+- [ ] Migrations `0001`–`0014` all applied
 - [ ] `npm run seed:cities`, `npm run seed:genres` and `npm run seed:places` run
 - [ ] YouTube Data API v3 enabled and its key set (no OAuth client needed)
 - [ ] ⚠️ **Supabase Auth → SMTP set to Resend.** The built-in sender is rate

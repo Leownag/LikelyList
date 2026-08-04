@@ -5,6 +5,7 @@ import { createAdminClient, type AdminClient } from "@/lib/supabase/admin";
 import { signToken, verifyToken, SUBSCRIBE_TOKEN_MAX_AGE_MS } from "@/lib/tokens";
 import { renderConfirmEmail } from "@/lib/email/confirm-email";
 import { TIMEZONES } from "@/lib/time";
+import { geoCellKey } from "@/lib/geo-cell";
 import type { City, Genre } from "@/lib/db";
 
 /**
@@ -248,12 +249,23 @@ export async function confirmSubscription(
   );
 
   if (pending.city_id) {
-    await supabase
-      .from("subscriptions")
-      .upsert(
-        { user_id: userId, city_id: pending.city_id },
-        { onConflict: "user_id,city_id", ignoreDuplicates: true },
+    // Copies the city's coordinates in, because a subscription is a point since 0014.
+    // A row without one is unusable: the planner searches by point and radius.
+    const city = await findCityById(supabase, pending.city_id);
+    if (city && city.latitude != null && city.longitude != null) {
+      await supabase.from("subscriptions").upsert(
+        {
+          user_id: userId,
+          city_id: city.id,
+          latitude: Number(city.latitude),
+          longitude: Number(city.longitude),
+          place_name: city.name,
+          state_code: city.state_code,
+          geo_cell: geoCellKey(Number(city.latitude), Number(city.longitude)),
+        },
+        { onConflict: "user_id,latitude,longitude", ignoreDuplicates: true },
       );
+    }
   }
 
   const genreIds = pending.genre_ids ?? [];
@@ -355,12 +367,19 @@ async function findCity(
 async function findCityById(
   supabase: AdminClient,
   id: number,
-): Promise<Pick<City, "id" | "name"> | null> {
+): Promise<Pick<
+  City,
+  "id" | "name" | "state_code" | "latitude" | "longitude"
+> | null> {
   const { data } = await supabase
     .from("cities")
-    .select("id, name")
+    .select("id, name, state_code, latitude, longitude")
     .eq("id", id)
-    .maybeSingle<Pick<City, "id" | "name">>();
+    // Coordinates included since 0014: a subscription stores a point, and without one
+    // the planner has nothing to search from.
+    .maybeSingle<
+      Pick<City, "id" | "name" | "state_code" | "latitude" | "longitude">
+    >();
   return data ?? null;
 }
 

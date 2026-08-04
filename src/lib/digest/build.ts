@@ -4,7 +4,6 @@ import {
   type ArtistPref,
   type ArtistRow,
   type CachedEvent,
-  type City,
   type Genre,
   type GenrePref,
   type Profile,
@@ -75,9 +74,12 @@ export async function buildDigest(
   const recipient = await resolveRecipient(supabase, userId, profile.email);
   if (!recipient) return null;
 
-  const [subsResult, genrePrefsResult, artistPrefsResult, citiesResult, genresResult] =
+  const [subsResult, genrePrefsResult, artistPrefsResult, genresResult] =
     await Promise.all([
-      supabase.from("subscriptions").select("city_id").eq("user_id", userId),
+      supabase
+        .from("subscriptions")
+        .select("geo_cell, place_name, state_code")
+        .eq("user_id", userId),
       supabase
         .from("genre_prefs")
         .select("genre_id, weight, source")
@@ -87,22 +89,22 @@ export async function buildDigest(
         .from("artist_prefs")
         .select("normalized_name, name, score")
         .eq("user_id", userId),
-      supabase.from("cities").select("id, name, state_code"),
       supabase.from("genres").select("id, tm_genre_id, name"),
     ]);
 
-  const cityIds = ((subsResult.data ?? []) as { city_id: number }[]).map(
-    (row) => row.city_id,
-  );
-  if (cityIds.length === 0) {
+  // Cells rather than cities: the planner caches per grid cell now, so this is what
+  // the reader's own subscriptions map onto. `cities` is still the label.
+  const subscriptions = (subsResult.data ?? []) as {
+    geo_cell: string;
+    place_name: string | null;
+    state_code: string | null;
+  }[];
+  const cells = [...new Set(subscriptions.map((row) => row.geo_cell))];
+
+  if (cells.length === 0) {
     return emptyDigest({ ...profile, email: recipient }, env, options, []);
   }
 
-  const cityById = new Map(
-    ((citiesResult.data ?? []) as Pick<City, "id" | "name" | "state_code">[]).map(
-      (city) => [city.id, city],
-    ),
-  );
   const genres = (genresResult.data ?? []) as Pick<
     Genre,
     "id" | "tm_genre_id" | "name"
@@ -134,9 +136,18 @@ export async function buildDigest(
     });
   }
 
-  const cityNames = cityIds
-    .map((id) => cityById.get(id)?.name)
-    .filter((name): name is string => Boolean(name));
+  // What the reader called the places they follow. Display only — used in the email's
+  // header and its empty-week copy.
+  const subscriptionLabels = [
+    ...new Set(
+      subscriptions
+        .map((row) =>
+          [row.place_name, row.state_code].filter(Boolean).join(", "),
+        )
+        .filter((label) => label.length > 0),
+    ),
+  ];
+  const cityNames = subscriptionLabels;
 
   // Nothing to filter by.
   //
@@ -154,16 +165,16 @@ export async function buildDigest(
   const { data: eventRows } = await supabase
     .from("events_cache")
     .select(
-      "city_id, tm_event_id, name, url, local_date, local_time, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions",
+      "geo_cell, tm_event_id, name, url, local_date, local_time, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions",
     )
-    .in("city_id", cityIds)
+    .in("geo_cell", cells)
     .gte("local_date", options.startDate)
     .lte("local_date", options.endDate)
     .order("local_date");
 
   const events = (eventRows ?? []) as CachedEvent[];
 
-  // One event can be cached under several cities; keep the first.
+  // One event can be cached under several cells; keep the first.
   const seen = new Set<string>();
   const scored: DigestEvent[] = [];
 
@@ -194,13 +205,10 @@ export async function buildDigest(
     };
   }
 
+  // The venue's own city, falling back to whatever the reader called the place they
+  // subscribed to. A cell has no name of its own.
   function cityLabelFor(row: CachedEvent): string {
-    const city = cityById.get(row.city_id);
-    return (
-      row.venue_city ??
-      [city?.name, city?.state_code].filter(Boolean).join(", ") ??
-      ""
-    );
+    return row.venue_city ?? subscriptionLabels[0] ?? "";
   }
 
   for (const row of events) {
@@ -268,9 +276,9 @@ export async function buildDigest(
   const { data: onsaleRows } = await supabase
     .from("events_cache")
     .select(
-      "city_id, tm_event_id, name, url, local_date, local_time, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions, onsale_start",
+      "geo_cell, tm_event_id, name, url, local_date, local_time, venue_name, venue_city, venue_state, image_url, tm_genre_id, attractions, onsale_start",
     )
-    .in("city_id", cityIds)
+    .in("geo_cell", cells)
     .gte("onsale_start", onsaleFrom.toISOString())
     .lt("onsale_start", onsaleTo.toISOString())
     .order("onsale_start");

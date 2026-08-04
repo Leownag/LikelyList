@@ -23,7 +23,7 @@ export default async function OverviewPage() {
     await Promise.all([
       supabase
         .from("subscriptions")
-        .select("id, city_id")
+        .select("id, city_id, place_name, state_code")
         .eq("user_id", userId)
         .order("id"),
       supabase
@@ -55,10 +55,19 @@ export default async function OverviewPage() {
 
   const subscriptions = ((subsResult.data ?? []) as Pick<
     Subscription,
-    "id" | "city_id"
+    "id" | "city_id" | "place_name" | "state_code"
   >[]).map((subscription) => ({
     ...subscription,
-    city: cityById.get(subscription.city_id) ?? null,
+    // Since 0014 a subscription is a point with a label, and only the ones that came
+    // from the curated picker still carry a city id. The label is what to show.
+    city:
+      (subscription.city_id !== null
+        ? cityById.get(subscription.city_id)
+        : null) ?? null,
+    label:
+      [subscription.place_name, subscription.state_code]
+        .filter(Boolean)
+        .join(", ") || null,
   }));
 
   const genrePrefs = ((prefsResult.data ?? []) as Pick<
@@ -166,10 +175,16 @@ export default async function OverviewPage() {
                   className="flex items-center gap-2 text-sm"
                 >
                   <PixelDot size={6} />
-                  <span>{subscription.city?.name ?? "Unknown city"}</span>
-                  {subscription.city?.state_code ? (
+                  {/* The stored label first: a subscription to a Census place has no
+                      curated city row to read a name from. */}
+                  <span>
+                    {subscription.place_name ??
+                      subscription.city?.name ??
+                      "Somewhere you followed"}
+                  </span>
+                  {subscription.state_code ?? subscription.city?.state_code ? (
                     <span className="text-faint">
-                      {subscription.city.state_code}
+                      {subscription.state_code ?? subscription.city?.state_code}
                     </span>
                   ) : null}
                 </li>

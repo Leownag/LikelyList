@@ -9,7 +9,9 @@ import {
 } from "@/lib/ticketmaster/events";
 import type { TmEvent } from "@/lib/ticketmaster/types";
 import { digestWindow, sendInstantFor } from "@/lib/time";
-import type { City, DigestRun, Profile } from "@/lib/db";
+import { encodeGeohash } from "@/lib/geohash";
+import { parseGeoCellKey } from "@/lib/geo-cell";
+import type { DigestRun, Profile } from "@/lib/db";
 
 /**
  * The Friday half of the pipeline: work out what to send, and to whom.
@@ -44,6 +46,18 @@ const ONSALE_EVENT_HORIZON_DAYS = 365;
  * would spend quota on events that could never be rendered.
  */
 const ONSALE_MAX_PAGES = 1;
+
+/**
+ * Search radius, matching /explore.
+ *
+ * Ticketmaster ignores `radius` unless it is paired with coordinates — 21 events for
+ * `city=Boston` against 85 for this radius on the same week — which is the whole reason
+ * subscriptions moved to points.
+ */
+const SEARCH_RADIUS_MILES = 50;
+
+/** Enough precision to place a cell centre; the radius does the rest. */
+const GEOHASH_PRECISION = 6;
 
 /** Refresh the genre taxonomy at most this often. */
 const TAXONOMY_MAX_AGE_DAYS = 30;
@@ -123,26 +137,45 @@ export async function planWeeklyDigest(
 
   const { data: subscriptionRows } = await supabase
     .from("subscriptions")
-    .select("user_id, city_id");
+    .select("user_id, geo_cell, place_name, state_code");
 
+  // One query per occupied grid cell, not per subscriber and no longer per city.
+  //
+  // Subscriptions store a point now, so "distinct city" is not a thing to group by.
+  // Grouping by exact point would make the cost grow with how spread out subscribers
+  // are; the quarter-degree cell means two people in neighbouring suburbs share a call,
+  // and the cell key doubles as the query centre and the cache key. See lib/geo-cell.ts.
   const subscribedUserIds = new Set(subscribers.map((s) => s.id));
-  const cityIds = new Set<number>();
+  const cellLabels = new Map<string, string>();
+
   for (const row of (subscriptionRows ?? []) as {
     user_id: string;
-    city_id: number;
+    geo_cell: string;
+    place_name: string | null;
+    state_code: string | null;
   }[]) {
-    if (subscribedUserIds.has(row.user_id)) cityIds.add(row.city_id);
+    if (!subscribedUserIds.has(row.user_id)) continue;
+    if (!cellLabels.has(row.geo_cell)) {
+      // Just for warnings and run stats — the first subscriber's place name is a more
+      // useful thing to read in a log than "42.25,-71".
+      cellLabels.set(
+        row.geo_cell,
+        [row.place_name, row.state_code].filter(Boolean).join(", ") || row.geo_cell,
+      );
+    }
   }
 
-  const { data: cityRows } = await supabase
-    .from("cities")
-    .select("id, name, tm_city, country_code")
-    .in("id", [...cityIds]);
-
-  const cities = (cityRows ?? []) as Pick<
-    City,
-    "id" | "name" | "tm_city" | "country_code"
-  >[];
+  const cells = [...cellLabels.keys()]
+    .map((key) => ({ key, centre: parseGeoCellKey(key), label: cellLabels.get(key)! }))
+    .filter(
+      (cell): cell is { key: string; centre: { latitude: number; longitude: number }; label: string } => {
+        if (cell.centre) return true;
+        // A malformed cell would reach the geohash encoder, which throws, and take out
+        // the whole run for one bad row.
+        warnings.push(`${cell.label}: unusable geo_cell ${JSON.stringify(cell.key)}`);
+        return false;
+      },
+    );
 
   const expiresAt = new Date(now.getTime() + CACHE_TTL_HOURS * 60 * 60 * 1000);
   let eventsCached = 0;
@@ -151,11 +184,18 @@ export async function planWeeklyDigest(
     now.getTime() + ONSALE_EVENT_HORIZON_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  for (const city of cities) {
+  for (const cell of cells) {
     try {
+      const geoPoint = encodeGeohash(
+        cell.centre.latitude,
+        cell.centre.longitude,
+        GEOHASH_PRECISION,
+      );
+
       const events = await searchMusicEvents(client, {
-        city: city.tm_city,
-        countryCode: city.country_code,
+        geoPoint,
+        radius: SEARCH_RADIUS_MILES,
+        unit: "miles",
         startDateTime: window.start,
         endDateTime: window.end,
       });
@@ -170,8 +210,9 @@ export async function planWeeklyDigest(
       // EventSearchParams for the measurements). The upper bound is therefore
       // applied in buildDigest, against the reader's own week.
       const onsale = await searchMusicEvents(client, {
-        city: city.tm_city,
-        countryCode: city.country_code,
+        geoPoint,
+        radius: SEARCH_RADIUS_MILES,
+        unit: "miles",
         // Still bounded, so a city with years of announced inventory cannot drag a
         // page of 2029 dates into the cache. It is not what selects the onsales.
         startDateTime: now,
@@ -182,7 +223,7 @@ export async function planWeeklyDigest(
 
       const rows = dedupeByEventId([...events, ...onsale])
         .filter(isSendableEvent)
-        .map((event) => toCachedEvent(event, city.id, expiresAt));
+        .map((event) => toCachedEvent(event, cell.key, expiresAt));
 
       if (rows.length > 0) {
         // Upsert in chunks: a busy market can return several hundred events and
@@ -190,15 +231,15 @@ export async function planWeeklyDigest(
         for (let i = 0; i < rows.length; i += 100) {
           const { error } = await supabase
             .from("events_cache")
-            .upsert(rows.slice(i, i + 100), { onConflict: "city_id,tm_event_id" });
+            .upsert(rows.slice(i, i + 100), { onConflict: "geo_cell,tm_event_id" });
           if (error) throw new Error(error.message);
         }
         eventsCached += rows.length;
       }
     } catch (error) {
-      // One bad city must not lose the whole run — everyone else still gets mail.
+      // One bad cell must not lose the whole run — everyone else still gets mail.
       warnings.push(
-        `${city.name}: ${error instanceof Error ? error.message : String(error)}`,
+        `${cell.label}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -238,7 +279,7 @@ export async function planWeeklyDigest(
     runDate,
     windowStart: window.startDate,
     windowEnd: window.endDate,
-    citiesQueried: cities.length,
+    citiesQueried: cells.length,
     eventsCached,
     jobsQueued,
     ticketmasterRequests: client.requestCount(),

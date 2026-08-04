@@ -45,7 +45,8 @@ export default async function SubscriptionsPage() {
 
   const savedCityIds = (
     (subsResult.data ?? []) as Pick<Subscription, "city_id">[]
-  ).map((row) => row.city_id);
+  ).map((row) => row.city_id)
+    .filter((id): id is number => id !== null);
 
   const prefs = (prefsResult.data ?? []) as Pick<
     GenrePref,

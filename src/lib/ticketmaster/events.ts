@@ -147,7 +147,7 @@ export async function searchMusicEvents(
  */
 export function toCachedEvent(
   event: TmEvent,
-  cityId: number,
+  geoCell: string,
   expiresAt: Date,
 ): CachedEvent {
   const venue = event._embedded?.venues?.[0];
@@ -165,7 +165,10 @@ export function toCachedEvent(
   );
 
   return {
-    city_id: cityId,
+    geo_cell: geoCell,
+    // Kept nullable and unset: nothing keys on a city any more, and writing one here
+    // would imply the search was scoped to it.
+    city_id: null,
     tm_event_id: event.id,
     name: event.name,
     url: event.url ?? null,

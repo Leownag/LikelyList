@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient, requireUser } from "@/lib/supabase/server";
 import { normalizeName } from "@/lib/normalize";
+import { geoCellKey } from "@/lib/geo-cell";
+import type { City } from "@/lib/db";
 import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -58,9 +60,34 @@ export async function saveSelections(input: {
     await supabase.from("subscriptions").delete().in("id", cityIdsToDelete);
   }
   if (citiesToInsert.length > 0) {
-    await supabase.from("subscriptions").insert(
-      citiesToInsert.map((cityId) => ({ user_id: user.id, city_id: cityId })),
-    );
+    // A subscription is a point since 0014, so the city's own coordinates are copied
+    // in. Without them the planner has nothing to search from — the city name is only a
+    // label now, and Ticketmaster ignores `radius` unless it is given a point.
+    const { data: cityRows } = await supabase
+      .from("cities")
+      .select("id, name, state_code, latitude, longitude")
+      .in("id", citiesToInsert);
+
+    const rows = ((cityRows ?? []) as Pick<
+      City,
+      "id" | "name" | "state_code" | "latitude" | "longitude"
+    >[])
+      .filter((city) => city.latitude != null && city.longitude != null)
+      .map((city) => ({
+        user_id: user.id,
+        city_id: city.id,
+        latitude: Number(city.latitude),
+        longitude: Number(city.longitude),
+        place_name: city.name,
+        state_code: city.state_code,
+        geo_cell: geoCellKey(Number(city.latitude), Number(city.longitude)),
+      }));
+
+    if (rows.length > 0) {
+      await supabase
+        .from("subscriptions")
+        .upsert(rows, { onConflict: "user_id,latitude,longitude" });
+    }
   }
 
   // --- Genres ---------------------------------------------------------------

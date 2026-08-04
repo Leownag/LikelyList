@@ -5,7 +5,8 @@ import { toCachedEvent } from "./events";
 import type { TmEvent } from "./types";
 
 const EXPIRES = new Date("2026-08-09T00:00:00Z");
-const CITY_ID = 1;
+/** A grid cell key, which is what events are keyed by since migration 0014. */
+const CELL = "42.25,-71";
 
 function event(overrides: Partial<TmEvent> = {}): TmEvent {
   return {
@@ -21,7 +22,7 @@ test("a public onsale is captured as an absolute instant", () => {
   // moment everybody races at once, and the email renders it per subscriber.
   const row = toCachedEvent(
     event({ sales: { public: { startDateTime: "2026-08-08T14:00:00Z" } } }),
-    CITY_ID,
+    CELL,
     EXPIRES,
   );
 
@@ -47,7 +48,7 @@ test("an onsale that has no usable date is null rather than invalid", () => {
   ];
 
   for (const overrides of cases) {
-    const row = toCachedEvent(event(overrides), CITY_ID, EXPIRES);
+    const row = toCachedEvent(event(overrides), CELL, EXPIRES);
     assert.equal(
       row.onsale_start,
       null,
