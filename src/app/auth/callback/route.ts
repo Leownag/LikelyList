@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { signInErrorMessage } from "@/lib/auth-error-message";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 /**
@@ -51,9 +52,13 @@ export async function GET(request: NextRequest) {
       type: type as EmailOtpType,
       token_hash: tokenHash,
     });
-    return error
-      ? failed(url, error.message)
-      : NextResponse.redirect(new URL(next, url.origin));
+    if (error) {
+      // Logged raw, shown mapped. An expired link is the common case and "Email link
+      // is invalid or has expired" does not tell anybody they can simply ask again.
+      console.error("[AUTH_CALLBACK]", error.code, error.status, error.message);
+      return failed(url, signInErrorMessage(error));
+    }
+    return NextResponse.redirect(new URL(next, url.origin));
   }
 
   // A `code` here means an email template is still on `{{ .ConfirmationURL }}`.

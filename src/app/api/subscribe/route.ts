@@ -7,6 +7,25 @@ const BodySchema = z.object({
   email: z.string().min(3).max(254),
   citySlug: z.string().max(64).nullable().default(null),
   /**
+   * A Census GEOID or a ZIP, for when the reader came from /explore having searched
+   * somewhere that is not one of the 43 curated metros.
+   *
+   * Both are names, not coordinates: requestSubscription resolves them against our own
+   * tables, so this endpoint cannot be used to subscribe to a point of the caller's
+   * choosing. Every distinct grid cell costs a Ticketmaster query every week.
+   */
+  placeGeoid: z
+    .string()
+    .regex(/^\d{2,10}$/)
+    .nullable()
+    .default(null),
+  postalCode: z
+    .string()
+    .trim()
+    .regex(/^\d{5}(-\d{4})?$/)
+    .nullable()
+    .default(null),
+  /**
    * At least one, and this is not a nicety.
    *
    * buildDigest filters on genre weight and followed artists, and an anonymous
@@ -15,7 +34,7 @@ const BodySchema = z.object({
    * required tap here is the whole difference between a working subscription and
    * a broken one.
    */
-  genreIds: z.array(z.number().int()).min(1).max(20),
+  genreIds: z.array(z.number().int()).min(1).max(40),
   timezone: z.string().max(64).default("America/New_York"),
 });
 

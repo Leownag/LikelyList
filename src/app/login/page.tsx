@@ -2,11 +2,15 @@ import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
 import { PixelMosaic } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
+import { LanguageSwitch } from "@/components/language-switch";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { siteUrlFromEnv } from "@/lib/site-url";
 import { LoginForm } from "./login-form";
+import { getT } from "@/lib/i18n/server";
 
-export const metadata = { title: "Sign in — likelylist" };
+export async function generateMetadata() {
+  return { title: (await getT())("title.login") };
+}
 
 export default async function LoginPage({
   searchParams,
@@ -33,7 +37,10 @@ export default async function LoginPage({
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-16">
       <div className="mb-10 flex items-center justify-between">
         <Wordmark />
-        <PixelMosaic seed="likelylist-login" cols={5} rows={3} cell={8} density={0.4} />
+        <div className="flex items-center gap-3">
+          <LanguageSwitch />
+          <PixelMosaic seed="likelylist-login" cols={5} rows={3} cell={8} density={0.4} />
+        </div>
       </div>
       <LoginForm
         next={next}

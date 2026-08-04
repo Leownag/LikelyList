@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { signInErrorMessage } from "@/lib/auth-error-message";
 import { Button, Input, Label, Notice } from "@/components/ui";
+import { useT } from "@/lib/i18n/client";
+import { SLOT, interleave } from "@/lib/i18n/interleave";
 
 /**
  * There is no such thing as registering for likelylist, and there is exactly one
@@ -35,6 +38,7 @@ export function LoginForm({
    */
   initialError?: string | null;
 }) {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
@@ -57,7 +61,11 @@ export function LoginForm({
     });
 
     if (error) {
-      setError(error.message);
+      // The raw fault stays in the console for whoever is debugging, and only the
+      // reader-facing sentence goes on screen — Supabase's own wording blames the
+      // address for problems that are ours (see signInErrorMessage).
+      console.error("[SIGN_IN]", error);
+      setError(signInErrorMessage(error));
       setBusy(false);
       return;
     }
@@ -69,11 +77,15 @@ export function LoginForm({
   if (sent) {
     return (
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Check your inbox</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {t("login.sent.title")}
+        </h1>
         <p className="mt-2 text-sm text-muted">
-          We sent a sign-in link to{" "}
-          <span className="text-text">{email}</span>. It works once and expires
-          in an hour. You can close this page.
+          {interleave(t("login.sent.body", { email: SLOT }), [
+            <span key="email" className="text-text">
+              {email}
+            </span>,
+          ])}
         </p>
         <div className="mt-8">
           <Button
@@ -84,7 +96,7 @@ export function LoginForm({
               setError(null);
             }}
           >
-            Use a different address
+            {t("login.sent.other")}
           </Button>
         </div>
       </div>
@@ -94,17 +106,13 @@ export function LoginForm({
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">
-        Your Friday email
+        {t("login.title")}
       </h1>
-      <p className="mt-2 text-sm text-muted">
-        Enter your address and we&apos;ll email you a link — whether you&apos;re
-        starting the digest or coming back to change what it covers. No password
-        to remember.
-      </p>
+      <p className="mt-2 text-sm text-muted">{t("login.body")}</p>
 
       <form onSubmit={sendLink} className="mt-8 space-y-4">
         <div>
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{t("login.emailLabel")}</Label>
           <Input
             id="email"
             name="email"
@@ -120,13 +128,11 @@ export function LoginForm({
         {error ? <Notice tone="error">{error}</Notice> : null}
 
         <Button type="submit" className="w-full" disabled={busy}>
-          {busy ? "Sending…" : "Email me a link"}
+          {busy ? t("login.sending") : t("login.submit")}
         </Button>
       </form>
 
-      <p className="mt-6 text-xs text-faint">
-        One email every Friday. One-click unsubscribe, any time.
-      </p>
+      <p className="mt-6 text-xs text-faint">{t("login.footnote")}</p>
     </div>
   );
 }

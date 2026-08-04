@@ -4,7 +4,12 @@ import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTicketmasterClient } from "@/lib/ticketmaster/client";
 import { isSendableEvent, searchMusicEvents } from "@/lib/ticketmaster/events";
-import { pickImage, primaryClassification, resolveLineup } from "@/lib/ticketmaster/lineup";
+import {
+  eventTimezone,
+  pickImage,
+  primaryClassification,
+  resolveLineup,
+} from "@/lib/ticketmaster/lineup";
 import { spotifySearchUrl, youtubeSearchUrl } from "@/lib/enrich/links";
 import { encodeGeohash } from "@/lib/geohash";
 import { geocodePostalCode } from "@/lib/geocode";
@@ -229,7 +234,7 @@ export async function POST(request: NextRequest) {
           cityLabel: venue?.city?.name ?? placeLabel ?? "",
           imageUrl: pickImage(event.images, { maxWidth: 320, ratio: "16_9" }),
           genreName: genreId ? (nameByTmId.get(genreId) ?? null) : null,
-          timezone: event.dates?.timezone ?? null,
+          timezone: eventTimezone(event),
           performers: resolveLineup(event).map(({ attraction, isHeadliner }) => ({
             name: attraction.name,
             isHeadliner,
