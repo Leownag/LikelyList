@@ -9,9 +9,9 @@
  * Sticky, because the point is to move between sections from wherever you are.
  */
 const SECTIONS = [
+  { id: "artists", label: "Artists" },
   { id: "cities", label: "Cities" },
   { id: "genres", label: "Genres" },
-  { id: "artists", label: "Artists" },
   { id: "screenshots", label: "Screenshots" },
 ] as const;
 

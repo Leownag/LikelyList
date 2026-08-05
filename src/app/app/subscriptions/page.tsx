@@ -1,19 +1,21 @@
 import { createClient, requireUser } from "@/lib/supabase/server";
-import { Notice, SectionHeading } from "@/components/ui";
+import { Notice } from "@/components/ui";
 import type { City, Genre, GenrePref, Subscription } from "@/lib/db";
 import { SubscriptionEditor } from "./subscription-editor";
 import { SectionNav } from "./section-nav";
 import { ScreenshotSection } from "./screenshot-section";
 import { FollowedPlaces, type FollowedPlace } from "./followed-places";
 import type { ToggleItem } from "./toggle-grid";
-import { ArtistPrefList } from "./artist-prefs";
 import { ArtistSearch } from "./artist-search";
 import { SpotifyCard } from "./spotify-card";
 import { loadSpotifyState } from "@/lib/spotify/state";
 
 export const metadata = { title: "What I follow" };
 
-export default async function SubscriptionsPage() {
+export default async function SubscriptionsPage({
+  searchParams,
+}: PageProps<"/app/subscriptions">) {
+  const { subscribed } = await searchParams;
   const user = await requireUser();
   const supabase = await createClient();
 
@@ -32,12 +34,15 @@ export default async function SubscriptionsPage() {
         .from("genre_prefs")
         .select("genre_id, source, weight")
         .eq("user_id", user.id),
+      // By name, not by score: the score is no longer shown, and sorting by it put the
+      // switched-off artists (score 0) last, where the limit truncated them first — so the
+      // ones you have to be able to find in order to switch back on were the ones missing.
       supabase
         .from("artist_prefs")
-        .select("id, name, score, source, last_seen_at")
+        .select("id, name, score, source")
         .eq("user_id", user.id)
-        .order("score", { ascending: false })
-        .limit(60),
+        .order("name")
+        .limit(200),
     ]);
 
   const spotify = await loadSpotifyState(user.id);
@@ -91,9 +96,37 @@ export default async function SubscriptionsPage() {
     label: genre.name,
   }));
 
+  const artists = (artistsResult.data ?? []) as {
+    id: number;
+    name: string;
+    score: number;
+    source: string;
+  }[];
+
+  // Provenance in the sublabel rather than ToggleGrid's `inferred` flag: that one is
+  // hardcoded to say "·feed", which is wrong for a Spotify import, and it only renders
+  // while selected — the opposite of what a list you switch things off in needs.
+  const artistItems: ToggleItem[] = artists.map((artist) => ({
+    id: artist.id,
+    label: artist.name,
+    sublabel: artist.source === "explicit" ? null : artist.source,
+  }));
+
+  // Same reading as the genre weight above: zero means switched off, not unranked.
+  const savedArtistIds = artists
+    .filter((artist) => artist.score > 0)
+    .map((artist) => artist.id);
+
   return (
     <div className="space-y-10">
       <SectionNav />
+
+      {subscribed ? (
+        <Notice tone="success">
+          You&apos;re subscribed and signed in. Your first digest arrives Friday
+          morning — everything below is what it covers.
+        </Notice>
+      ) : null}
 
       {genres.length === 0 ? (
         <Notice tone="warn">
@@ -108,35 +141,23 @@ export default async function SubscriptionsPage() {
       <SubscriptionEditor
         cities={cityItems}
         genres={genreItems}
+        artists={artistItems}
         savedCityIds={savedCityIds}
         savedGenreIds={savedGenreIds}
+        savedArtistIds={savedArtistIds}
         inferredGenreIds={inferredGenreIds}
         placesControl={<FollowedPlaces places={followedPlaces} />}
+        artistsControl={
+          <>
+            {spotify ? (
+              <div className="mb-4">
+                <SpotifyCard state={spotify} />
+              </div>
+            ) : null}
+            <ArtistSearch />
+          </>
+        }
       />
-
-      <section id="artists" className="scroll-mt-16">
-        <SectionHeading hint="Search for anyone you don't want to miss, or let a screenshot fill this in. Shows by these artists get pushed to the top of your digest — and reach it even in a genre you don't follow.">
-          Artists
-        </SectionHeading>
-        {spotify ? (
-          <div className="mb-4">
-            <SpotifyCard state={spotify} />
-          </div>
-        ) : null}
-
-        <ArtistSearch />
-        <ArtistPrefList
-          artists={
-            (artistsResult.data ?? []) as {
-              id: number;
-              name: string;
-              score: number;
-              source: string;
-              last_seen_at: string;
-            }[]
-          }
-        />
-      </section>
 
       <section id="screenshots" className="scroll-mt-16">
         <ScreenshotSection />
