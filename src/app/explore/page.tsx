@@ -1,6 +1,6 @@
-import { ButtonLink } from "@/components/ui";
 import { PixelMosaic, PixelRule } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
+import { PublicHeader } from "@/components/public-header";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { readEnv } from "@/lib/env";
@@ -34,17 +34,10 @@ export default async function ExplorePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-10">
-      <header className="flex items-center justify-between">
-        <Wordmark />
-        {/* The subscribe box lives at the bottom of the results, attached to a
-            search someone has actually looked at, which is a better moment to ask
-            for an address than the top of an empty page. */}
-        <nav className="flex items-center gap-2">
-          <ButtonLink href="/login" variant="ghost">
-            Sign in
-          </ButtonLink>
-        </nav>
-      </header>
+      {/* The subscribe box lives at the bottom of the results, attached to a search
+          someone has actually looked at, which is a better moment to ask for an address
+          than the top of an empty page. */}
+      <PublicHeader current="explore" signedIn={Boolean(user)} />
 
       <section className="mt-14 flex items-start justify-between gap-8">
         <div className="max-w-xl">

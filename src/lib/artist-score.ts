@@ -86,3 +86,44 @@ export function spotifyRankScore(index: number, total: number): number {
     total > 1 ? (SPOTIFY_TOP_SCORE - SPOTIFY_BOTTOM_SCORE) / (total - 1) : 0;
   return Number((SPOTIFY_TOP_SCORE - step * index).toFixed(3));
 }
+
+/**
+ * Switched off, but remembered.
+ *
+ * Deleting the row instead would not stick: feeds/apply.ts and spotify/import.ts both
+ * upsert on (user_id, normalized_name), so the next screenshot or sync re-follows anyone
+ * who was merely removed. genre_prefs has used a zero weight for this since 0001; artists
+ * never did. A zero score contributes nothing to buildDigest's artistBoost either way.
+ */
+export const OPTED_OUT_SCORE = 0;
+
+/**
+ * Which artists a Save actually has to write.
+ *
+ * The editor holds *intent* — "I ticked this, I unticked that" — rather than an absolute
+ * set, because three things write artist_prefs behind its back (the search box, the
+ * Spotify card, a screenshot confirm) and each one refreshes the page mid-edit. Comparing
+ * intent against what the server says is saved means a row arriving while you edit is
+ * simply already correct, and a save needs no state reset afterwards.
+ *
+ * Iterating `knownIds` rather than the intent map is the load-bearing part: a row deleted
+ * under us (a Spotify retire) drops out of the delta instead of leaving Save armed
+ * forever against an id that no longer exists.
+ */
+export function artistSelectionDelta(
+  knownIds: Iterable<number>,
+  savedOn: ReadonlySet<number>,
+  intent: ReadonlyMap<number, boolean>,
+): { on: number[]; off: number[] } {
+  const on: number[] = [];
+  const off: number[] = [];
+
+  for (const id of knownIds) {
+    const wanted = intent.get(id);
+    if (wanted === undefined || wanted === savedOn.has(id)) continue;
+    if (wanted) on.push(id);
+    else off.push(id);
+  }
+
+  return { on, off };
+}

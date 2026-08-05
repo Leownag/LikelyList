@@ -4,29 +4,38 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Notice, SectionHeading } from "@/components/ui";
 import { PixelDot } from "@/components/pixel";
+import { artistSelectionDelta } from "@/lib/artist-score";
 import { saveSelections } from "./actions";
 import { ToggleGrid, type ToggleItem } from "./toggle-grid";
 
 /**
- * Cities and genres, edited together and saved once.
+ * Artists, cities and genres, edited together and saved once.
  *
  * The whole selection lives in local state until Save. That removes the flicker
  * from the old design (a server action plus revalidate on every chip) and, more
  * importantly, makes the screen behave the way a settings screen should: change
  * several things, look at them, then commit or walk away.
+ *
+ * Cities and genres are held as absolute sets; artists are held as *intent* — see
+ * artistIntent below. The asymmetry is deliberate and load-bearing.
  */
 export function SubscriptionEditor({
   cities,
   genres,
+  artists,
   savedCityIds,
   savedGenreIds,
+  savedArtistIds,
   inferredGenreIds,
   placesControl,
+  artistsControl,
 }: {
   cities: ToggleItem[];
   genres: ToggleItem[];
+  artists: ToggleItem[];
   savedCityIds: number[];
   savedGenreIds: number[];
+  savedArtistIds: number[];
   inferredGenreIds: number[];
   /**
    * The follow-any-town control, rendered under the grid.
@@ -35,6 +44,8 @@ export function SubscriptionEditor({
    * job is to hold edits until Save, so it stays out of the dirty tracking above.
    */
   placesControl?: ReactNode;
+  /** The search box and Spotify card. Same reason as placesControl: they write on click. */
+  artistsControl?: ReactNode;
 }) {
   const router = useRouter();
 
@@ -48,8 +59,41 @@ export function SubscriptionEditor({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  /**
+   * What the reader has changed about the artists, not which artists are on.
+   *
+   * Three things write artist_prefs behind this component's back — the search box, the
+   * Spotify card, and a screenshot confirm — and each one refreshes the page, so the
+   * saved-ids prop changes mid-edit. An absolute Set seeded from props would either
+   * ignore the new row or throw away pending edits. Intent has neither problem: an
+   * artist nobody touched has no entry, so it simply follows the server.
+   *
+   * It also means save() resets nothing. Once the refresh lands, intent agrees with the
+   * server, the delta empties and `dirty` goes false on its own — where clearing a set
+   * by hand would flicker in the window before the refresh arrives.
+   */
+  const savedArtists = useMemo(() => new Set(savedArtistIds), [savedArtistIds]);
+  const [artistIntent, setArtistIntent] = useState<Map<number, boolean>>(new Map());
+
+  const checkedArtists = useMemo(() => {
+    const next = new Set(savedArtists);
+    for (const [id, on] of artistIntent) {
+      if (on) next.add(id);
+      else next.delete(id);
+    }
+    return next;
+  }, [savedArtists, artistIntent]);
+
+  const artistDelta = artistSelectionDelta(
+    artists.map((artist) => artist.id),
+    savedArtists,
+    artistIntent,
+  );
+
   const dirty =
-    !sameSet(cityIds, savedCities) || !sameSet(genreIds, savedGenres);
+    !sameSet(cityIds, savedCities) ||
+    !sameSet(genreIds, savedGenres) ||
+    artistDelta.on.length + artistDelta.off.length > 0;
 
   // A hard navigation or tab close with pending edits should not silently drop
   // them. In-app navigation is covered by the visible Save / Discard pair.
@@ -69,6 +113,27 @@ export function SubscriptionEditor({
     setError(null);
   }
 
+  function toggleArtist(id: number) {
+    const next = new Map(artistIntent);
+    next.set(id, !checkedArtists.has(id));
+    setArtistIntent(next);
+    setSaved(false);
+    setError(null);
+  }
+
+  function setAllArtists(on: boolean) {
+    const next = new Map(artistIntent);
+    for (const artist of artists) next.set(artist.id, on);
+    setArtistIntent(next);
+    setSaved(false);
+    setError(null);
+  }
+
+  // `every` rather than comparing sizes: a saved id with no row on screen — truncated by
+  // the query's limit — would otherwise wedge this permanently at "Clear all".
+  const allArtistsChecked =
+    artists.length > 0 && artists.every((artist) => checkedArtists.has(artist.id));
+
   async function save() {
     setBusy(true);
     setError(null);
@@ -76,6 +141,8 @@ export function SubscriptionEditor({
       await saveSelections({
         cityIds: [...cityIds],
         genreIds: [...genreIds],
+        artistsOn: artistDelta.on,
+        artistsOff: artistDelta.off,
       });
       setSaved(true);
       // Refresh so the server-rendered summary and the /app overview agree with
@@ -95,6 +162,7 @@ export function SubscriptionEditor({
   function discardAndLeave() {
     setCityIds(new Set(savedCities));
     setGenreIds(new Set(savedGenres));
+    setArtistIntent(new Map());
     router.push("/app");
   }
 
@@ -107,6 +175,40 @@ export function SubscriptionEditor({
     <div className="space-y-8">
       {/* scroll-mt clears the sticky SectionNav, which would otherwise cover the
           heading a jump link just moved to. */}
+      <section id="artists" className="scroll-mt-16">
+        <SectionHeading hint="Search for anyone you don't want to miss, or let a screenshot fill this in. Shows by these artists get pushed to the top of your digest — and reach it even in a genre you don't follow.">
+          Artists
+        </SectionHeading>
+
+        {artistsControl}
+
+        <Card className="p-5">
+          <ToggleGrid
+            checkbox
+            items={artists}
+            selected={checkedArtists}
+            baseline={savedArtists}
+            onToggle={toggleArtist}
+            emptyLabel="Nobody yet — search above, or add a screenshot at the bottom of this page."
+          />
+
+          {artists.length > 0 ? (
+            <button
+              type="button"
+              className="mt-4 text-xs text-accent underline"
+              onClick={() => setAllArtists(!allArtistsChecked)}
+            >
+              {allArtistsChecked ? "Clear all" : "Select all"}
+            </button>
+          ) : null}
+
+          <p className="mt-4 text-xs text-faint">
+            Unticking keeps the name here rather than deleting it, so a screenshot or a
+            Spotify sync will not quietly tick it again.
+          </p>
+        </Card>
+      </section>
+
       <section id="cities" className="scroll-mt-16">
         <SectionHeading hint="One Ticketmaster query is made per city you follow, shared across everyone who follows it.">
           Cities
@@ -179,7 +281,7 @@ export function SubscriptionEditor({
             ) : saved ? (
               "Saved."
             ) : (
-              `${cityIds.size} cit${cityIds.size === 1 ? "y" : "ies"} · ${genreIds.size} genre${genreIds.size === 1 ? "" : "s"}`
+              `${cityIds.size} cit${cityIds.size === 1 ? "y" : "ies"} · ${genreIds.size} genre${genreIds.size === 1 ? "" : "s"} · ${checkedArtists.size} artist${checkedArtists.size === 1 ? "" : "s"}`
             )}
           </span>
         </div>

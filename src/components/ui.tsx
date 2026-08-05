@@ -120,7 +120,7 @@ export function Notice({
   tone = "info",
   children,
 }: {
-  tone?: "info" | "warn" | "error";
+  tone?: "info" | "warn" | "error" | "success";
   children: ReactNode;
 }) {
   const border =
@@ -128,7 +128,9 @@ export function Notice({
       ? "border-l-danger"
       : tone === "warn"
         ? "border-l-pixel-3"
-        : "border-l-border-strong";
+        : tone === "success"
+          ? "border-l-accent"
+          : "border-l-border-strong";
   return (
     <div
       className={`border border-border border-l-2 ${border} bg-surface px-4 py-3 text-sm text-muted`}

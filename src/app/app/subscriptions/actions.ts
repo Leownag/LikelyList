@@ -6,7 +6,7 @@ import { normalizeName } from "@/lib/normalize";
 import { geoCellKey } from "@/lib/geo-cell";
 // The scale every artist signal shares — see lib/artist-score for why the numbers
 // only make sense relative to each other.
-import { EXPLICIT_ARTIST_SCORE } from "@/lib/artist-score";
+import { EXPLICIT_ARTIST_SCORE, OPTED_OUT_SCORE } from "@/lib/artist-score";
 import type { City } from "@/lib/db";
 import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -31,6 +31,16 @@ export type SaveResult = {
 export async function saveSelections(input: {
   cityIds: number[];
   genreIds: number[];
+  /**
+   * Artists are a delta, not a set.
+   *
+   * The other two are chosen from a full catalogue, so "everything not in this list is
+   * off" is a safe reading. artist_prefs holds only artists you already follow and the
+   * page renders a bounded slice of it, so the same reading would silently opt out
+   * anybody the limit truncated. Only ids the reader actually clicked are sent.
+   */
+  artistsOn?: number[];
+  artistsOff?: number[];
 }): Promise<SaveResult> {
   const user = await requireUser();
   const supabase = await createClient();
@@ -153,6 +163,33 @@ export async function saveSelections(input: {
       .from("genre_prefs")
       .update({ weight: 0, source: "explicit" })
       .in("id", idsToDisable);
+  }
+
+  // --- Artists --------------------------------------------------------------
+  //
+  // Same shape as the genre opt-out above, for the same reason: feeds/apply.ts and
+  // spotify/import.ts both upsert on (user_id, normalized_name), so a deleted artist
+  // comes back on the next screenshot or sync. Writing 'explicit' is what keeps them
+  // off the row — import.ts filters explicit rows out of its upsert and only ever
+  // retires source='spotify'.
+  //
+  // `.eq("user_id")` on top of RLS because a row id arrives from the client.
+  const artistsOff = (input.artistsOff ?? []).filter(Number.isInteger);
+  const artistsOn = (input.artistsOn ?? []).filter(Number.isInteger);
+
+  if (artistsOff.length > 0) {
+    await supabase
+      .from("artist_prefs")
+      .update({ score: OPTED_OUT_SCORE, source: "explicit" })
+      .eq("user_id", user.id)
+      .in("id", artistsOff);
+  }
+  if (artistsOn.length > 0) {
+    await supabase
+      .from("artist_prefs")
+      .update({ score: EXPLICIT_ARTIST_SCORE, source: "explicit" })
+      .eq("user_id", user.id)
+      .in("id", artistsOn);
   }
 
   // Revalidated once, after everything, rather than per toggle.
@@ -350,19 +387,6 @@ export async function disconnectSpotify() {
   // Scoped to this user's own row by the eq() below.
   const supabase = createAdminClient(env);
   await supabase.from("spotify_links").delete().eq("user_id", user.id);
-
-  revalidatePath("/app/subscriptions");
-}
-
-export async function removeArtistPref(artistPrefId: number) {
-  const user = await requireUser();
-  const supabase = await createClient();
-
-  await supabase
-    .from("artist_prefs")
-    .delete()
-    .eq("id", artistPrefId)
-    .eq("user_id", user.id);
 
   revalidatePath("/app/subscriptions");
 }

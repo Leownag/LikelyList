@@ -190,6 +190,7 @@ replacing its default nameservers with the two Cloudflare assigned.
 | --- | --- |
 | The app | Added for you by Workers → *Settings* → *Domains & Routes* → *Add custom domain* (`likelylist.tech`, and `www` if you want it) |
 | Inbound unsubscribe | Cloudflare **Email Routing** → route `unsubscribe@likelylist.tech` to your real inbox (free). This is what `EMAIL_UNSUBSCRIBE_MAILTO` points at |
+| Privacy contact | Email Routing → route `help@likelylist.tech` to your real inbox. Hardcoded in `src/app/privacy/page.tsx`, so it is a published commitment in a legally-required document — without this route, erasure requests bounce. Deliberately not the unsubscribe address: that one is machine-read and auto-processed |
 | Resend SPF | `TXT` on `mail.likelylist.tech`, value from Resend |
 | Resend DKIM | Record from Resend on `resend._domainkey.mail.likelylist.tech` |
 | DMARC | `TXT` on `_dmarc.mail.likelylist.tech`, start at `v=DMARC1; p=none; rua=mailto:you@likelylist.tech` |
@@ -806,10 +807,13 @@ Ordered so nothing waits on something later in the list.
       limited to a handful of messages an hour, and sign-in links are now the only
       way in — a throttled one is a lockout, not a delay
 - [ ] **Both** the "Magic link or OTP" *and* "Confirm sign up" templates pointed at
-      `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=…&next=/app`
-      — **not** `{{ .ConfirmationURL }}`, which produces a `code` that cannot be
-      exchanged from a different browser. The signup one is what a first-time
-      address actually receives
+      `{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=…`, as the files in
+      `supabase/email-templates/` do — **not** `{{ .ConfirmationURL }}`, which
+      produces a `code` that cannot be exchanged from a different browser, and
+      **not** `{{ .SiteURL }}` with a hardcoded `next`, which throws away the
+      `next` the app sent and so breaks every flow that resumes after sign-in
+      (currently: the digest's in-app links, and the landing page's Spotify
+      button). The signup one is what a first-time address actually receives
 - [ ] **Site URL** is the real domain, and *Redirect URLs* holds the two exact
       `/auth/callback` paths with the default `http://localhost:3000/**` wildcard
       removed. A stale Site URL is silent: the templates build their footer links
@@ -826,6 +830,9 @@ Ordered so nothing waits on something later in the list.
 - [ ] `EMAIL_FROM` is an address on that verified subdomain — there is no default
       sender, so a missing or unverified value fails the send rather than quietly
       delivering from somewhere else
+- [ ] `help@likelylist.tech` routed to a real inbox in Email Routing — `/privacy`
+      publishes it as the contact for corrections and erasure requests, so an
+      unrouted address turns a legal commitment into a bounce
 - [ ] All secrets pushed with `wrangler secret put`
 - [ ] ⚠️ **Build with production environment values, not `.env.local`.** `robots.txt`
       and `sitemap.xml` are prerendered and `metadataBase` in `src/app/layout.tsx`

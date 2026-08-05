@@ -214,6 +214,37 @@ async function main() {
       );
     });
 
+    // The page is a centred column on an empty screen, so it reads as a modal and readers
+    // look for a dismiss. `.last()` because the ✕ carries the same accessible name.
+    await check("login has a way out", async () => {
+      await page.getByRole("link", { name: /Back to likelylist/ }).last().click();
+      // waitForURL, not waitForLoadState: this is a client-side navigation and no `load`
+      // event fires, so waiting on one asserts against the page you just left.
+      await page.waitForURL(`${BASE}/`);
+      return path(page);
+    });
+
+    // The landing page's Spotify button, for somebody with no account. The consent screen
+    // itself is out of scope for this suite, but the part that used to be wrong is not:
+    // the bounce has to come back to the connect route, or signing in strands the reader
+    // on the editor having never bound anything.
+    await check("the landing Spotify button sends a stranger to sign in first", async () => {
+      await go(page, "/");
+      const connect = page.getByRole("link", { name: /Connect with Spotify/i }).first();
+      if ((await connect.count()) === 0) return "skip: SPOTIFY_CLIENT_ID is not set";
+
+      await connect.click();
+      await page.waitForURL(/\/login\?/, { timeout: 30_000 });
+      assert(
+        decodeURIComponent(path(page)).includes("next=/api/spotify/connect"),
+        `sign-in would not resume the connect: ${path(page)}`,
+      );
+      const shown = await page.locator("main").innerText();
+      assert(/spotify/i.test(shown), "nothing on /login explains why an address is needed");
+      await shot(page, "login-spotify");
+      return path(page);
+    });
+
     for (const guarded of ["/app", "/app/feed", "/app/pinned", "/app/subscriptions", "/app/settings"]) {
       await check(`${guarded} redirects a stranger to /login`, async () => {
         await go(page, guarded);
@@ -260,27 +291,27 @@ async function main() {
       return path(page);
     });
 
-    await check("?lang=zh-Hant serves Chinese copy", async () => {
+    // The browser half of the English-only guard. switcher.test.ts covers the resolvers;
+    // this catches a catalogue reaching a real page through a route no unit test models.
+    await check("?lang=zh-Hant still serves English", async () => {
       await go(page, "/?lang=zh-Hant");
       const text = await page.locator("body").innerText();
-      assert(/[一-鿿]/.test(text), "no Chinese characters on the page");
-      await shot(page, "landing-zh");
+      assert(!/[一-鿿]/.test(text), "Chinese copy is still being served");
+      assert(
+        !(await page.getByRole("group", { name: "Language" }).count()),
+        "the language switcher is still rendered",
+      );
     });
 
-    await check("the language switch sticks across a navigation", async () => {
-      await go(page, "/");
-      await page.getByRole("group", { name: "Language" }).getByRole("link").first().click();
-      await page.waitForLoadState("load");
-      const afterSwitch = await page.locator("body").innerText();
-      assert(/[一-鿿]/.test(afterSwitch), "switching did not change the copy");
-      // /login rather than /privacy: the privacy policy is deliberately English-only.
-      await go(page, "/login");
-      const carried = await page.locator("body").innerText();
-      assert(/[一-鿿]/.test(carried), "the choice did not survive a navigation");
-      const cookie = (await anon.cookies()).find((c) => c.name.includes("lang") || c.name.includes("locale"));
-      assert(cookie?.value === "zh-Hant", `locale cookie is ${cookie?.value ?? "absent"}`);
-      // Back to English for the rest of the anonymous checks.
-      await go(page, "/lang?to=en&next=/");
+    // Not "no cookie at all": `to=en` is a served locale and legitimately sets one, which
+    // an earlier check in this file already did. What must not happen is a switched-off
+    // locale being persisted.
+    await check("/lang refuses to persist a locale that is not served", async () => {
+      await go(page, "/lang?to=zh-Hant&next=/");
+      const cookie = (await anon.cookies()).find(
+        (c) => c.name.includes("lang") || c.name.includes("locale"),
+      );
+      assert(cookie?.value !== "zh-Hant", "a switched-off locale was written to a cookie");
     });
 
     await check("an unknown path is a 404", async () => {
@@ -367,6 +398,19 @@ async function main() {
       });
     }
 
+    // What the confirm email's happy path lands on. The redirect chain that gets here is
+    // asserted in safe-next.test.ts; this is the half that proves the banner exists.
+    await check("?subscribed=1 acknowledges the confirmation", async () => {
+      await go(app, "/app/subscriptions?subscribed=1");
+      const text = await app.locator("main").innerText();
+      assert(/subscribed and signed in/i.test(text), "no confirmation banner");
+      await shot(app, "subscriptions-confirmed");
+
+      await go(app, "/app/subscriptions");
+      const plain = await app.locator("main").innerText();
+      assert(!/subscribed and signed in/i.test(plain), "the banner shows without the flag");
+    });
+
     await check("the subscriptions jump links move down the page", async () => {
       await go(app, "/app/subscriptions");
       await app.getByRole("navigation", { name: "Jump to a section" })
@@ -374,6 +418,104 @@ async function main() {
         .click();
       await app.waitForFunction(() => window.scrollY > 200, undefined, { timeout: 10_000 });
       assert(app.url().endsWith("#screenshots"), `url is ${path(app)}`);
+    });
+
+    // The whole artists rework in one pass. Worth the length: a switched-off artist is
+    // stored as score 0 rather than deleted, and the only way to tell that from a delete
+    // is that the chip is still on the page after a reload.
+    await check("an artist can be followed, switched off, and stays listed", async () => {
+      await go(app, "/app/subscriptions");
+      await app.locator("#artist-search").fill("Phoebe Bridgers");
+      const follow = app.locator("#artists").getByRole("button", { name: "Follow" }).first();
+      await follow.waitFor({ timeout: 20_000 });
+      await follow.click();
+
+      // followArtist writes immediately and revalidates, so the chip arrives from the
+      // server mid-edit — already ticked, because a manual follow is an explicit one.
+      const chip = app.locator("#artists button", { hasText: /Phoebe Bridgers/i }).first();
+      await chip.waitFor({ timeout: 20_000 });
+      assert(
+        (await chip.innerText()).includes("[x]"),
+        `a hand-followed artist should arrive ticked, got ${await chip.innerText()}`,
+      );
+
+      const save = app.getByRole("button", { name: /Save changes/i });
+      await chip.click();
+      assert((await chip.innerText()).includes("[ ]"), "unticking did not change the box");
+      assert(await save.isEnabled(), "Save stayed disabled after unticking an artist");
+      await save.click();
+      await app.getByText("Saved.").waitFor({ timeout: 30_000 });
+
+      await go(app, "/app/subscriptions");
+      const after = app.locator("#artists button", { hasText: /Phoebe Bridgers/i }).first();
+      await after.waitFor({ timeout: 20_000 });
+      assert(
+        (await after.innerText()).includes("[ ]"),
+        "the artist came back ticked, so the opt-out was not stored",
+      );
+      return "off, and still listed";
+    });
+
+    await check("select all turns every artist back on", async () => {
+      const selectAll = app.locator("#artists").getByRole("button", { name: "Select all" });
+      await selectAll.click();
+      const chip = app.locator("#artists button", { hasText: /Phoebe Bridgers/i }).first();
+      assert((await chip.innerText()).includes("[x]"), "Select all did not tick the chip");
+      await app.locator("#artists").getByRole("button", { name: "Clear all" }).waitFor();
+      await app.getByRole("button", { name: /Save changes/i }).click();
+      await app.getByText("Saved.").waitFor({ timeout: 30_000 });
+    });
+
+    await check("the overview lists the artists the digest looks for", async () => {
+      await go(app, "/app");
+      const overview = await app.locator("main").innerText();
+      assert(/Artists|歌手/.test(overview), "no artists section on the overview");
+      assert(
+        overview.includes("Phoebe Bridgers"),
+        "the followed artist is missing from the overview",
+      );
+      await shot(app, "overview-artists");
+    });
+
+    await check("the landing page greets a subscriber with their next digest", async () => {
+      await go(app, "/");
+      const main = await app.locator("main").innerText();
+      assert(
+        /digest is on the way/i.test(main),
+        `landing page still reads as anonymous: ${main.slice(0, 200)}`,
+      );
+      // The form, not the word: the "01 / your email" step copy says "you're
+      // subscribed" and is meant to stay.
+      assert(
+        (await app.getByRole("button", { name: "Subscribe", exact: true }).count()) === 0,
+        "the anonymous subscribe box is still on a signed-in landing page",
+      );
+      await shot(app, "landing-signed-in");
+    });
+
+    await check("build it now runs once, then holds the door for three minutes", async () => {
+      const build = app.getByRole("button", { name: /build it now/i });
+      await build.click();
+      // A real build: queries the event cache and renders the whole email.
+      await app.getByText(/email size/i).waitFor({ timeout: 60_000 });
+
+      assert(await build.isDisabled(), "the button stayed clickable after a build");
+      const countdown = app.getByText(/ready again in/i);
+      await countdown.waitFor();
+
+      // The cooldown the server enforces outlives the page, so the button must not come
+      // back enabled on a reload only to be met with a 429. The deadline lives in
+      // localStorage, which the server cannot read, so the button is briefly enabled
+      // between paint and hydration — wait for the countdown rather than assert on the
+      // first frame.
+      await go(app, "/");
+      const stillWaiting = app.getByText(/ready again in/i);
+      await stillWaiting.waitFor({ timeout: 10_000 });
+      assert(
+        await app.getByRole("button", { name: /build it now/i }).isDisabled(),
+        "the cooldown was forgotten across a reload",
+      );
+      return await stillWaiting.innerText();
     });
 
     await check("following a city and a genre reaches the overview", async () => {
@@ -474,16 +616,6 @@ async function main() {
         "unpinning left the show on the page",
       );
       return title.slice(0, 40);
-    });
-
-    await check("the app switches to Chinese and back", async () => {
-      await go(app, "/app");
-      await app.getByRole("group", { name: "Language" }).getByRole("link").first().click();
-      await app.waitForLoadState("load");
-      await app.getByRole("navigation").getByRole("link", { name: "總覽" }).waitFor({ timeout: 15_000 });
-      await shot(app, "app-zh");
-      await app.getByRole("group", { name: "Language" }).getByRole("link").first().click();
-      await app.getByRole("navigation").getByRole("link", { name: "Overview" }).waitFor({ timeout: 15_000 });
     });
 
     await check("signing out closes the app", async () => {

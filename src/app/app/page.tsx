@@ -2,8 +2,8 @@ import Link from "next/link";
 import { createClient, requireProfile } from "@/lib/supabase/server";
 import { Card, EmptyState, SectionHeading, ButtonLink, Notice } from "@/components/ui";
 import { PixelDot, PixelMosaic } from "@/components/pixel";
-import { nextWeekdayAt } from "@/lib/time";
-import type { City, Genre, GenrePref, Subscription } from "@/lib/db";
+import { nextDigestLabel } from "@/lib/time";
+import type { ArtistPref, City, Genre, GenrePref, Subscription } from "@/lib/db";
 import { DigestPreview } from "./digest-preview";
 import { getI18n, getT } from "@/lib/i18n/server";
 import { SLOT, interleave } from "@/lib/i18n/interleave";
@@ -12,8 +12,8 @@ export async function generateMetadata() {
   return { title: (await getT())("title.overview") };
 }
 
-/** Friday, in the user's own timezone. */
-const DIGEST_WEEKDAY = 5;
+/** Enough to show what the digest is actually built from without becoming a list page. */
+const OVERVIEW_ARTIST_LIMIT = 24;
 
 export default async function OverviewPage() {
   const { userId, profile } = await requireProfile();
@@ -24,8 +24,14 @@ export default async function OverviewPage() {
   // PostgREST embeds. Without generated database types, supabase-js types an
   // embedded to-one relation as an array, and the cast needed to fix that would
   // hide real shape mistakes.
-  const [subsResult, prefsResult, feedsResult, citiesResult, genresResult] =
-    await Promise.all([
+  const [
+    subsResult,
+    prefsResult,
+    artistsResult,
+    feedsResult,
+    citiesResult,
+    genresResult,
+  ] = await Promise.all([
       supabase
         .from("subscriptions")
         .select("id, city_id, place_name, state_code")
@@ -36,6 +42,15 @@ export default async function OverviewPage() {
         .select("id, genre_id, weight, source")
         .eq("user_id", userId)
         .order("weight", { ascending: false }),
+      // Zero-score rows are switched-off artists, the same way a zero-weight genre_pref
+      // is an opt-out marker — filtered in the query so the count agrees with the list.
+      supabase
+        .from("artist_prefs")
+        .select("id, name, source", { count: "exact" })
+        .eq("user_id", userId)
+        .gt("score", 0)
+        .order("score", { ascending: false })
+        .limit(OVERVIEW_ARTIST_LIMIT),
       supabase
         .from("feeds")
         .select("id, status, not_music_related, applied_at", { count: "exact" })
@@ -86,28 +101,20 @@ export default async function OverviewPage() {
       genre: genreById.get(pref.genre_id) ?? null,
     }));
 
+  const artists = (artistsResult.data ?? []) as Pick<
+    ArtistPref,
+    "id" | "name" | "source"
+  >[];
+  // The card shows the top slice; the count is of everything followed, so "24 of 300"
+  // does not read as "we lost your artists".
+  const artistCount = artistsResult.count ?? artists.length;
+
   const feedCount = feedsResult.count ?? 0;
   const pendingFeeds = (feedsResult.data ?? []).filter(
     (feed) => feed.status === "done" && !feed.applied_at && !feed.not_music_related,
   ).length;
 
-  const nextSend = nextWeekdayAt(
-    new Date(),
-    profile.timezone,
-    DIGEST_WEEKDAY,
-    profile.digest_send_hour,
-  );
-  // The reader's locale, not en-US: an English weekday inside Chinese body copy is the
-  // most visible way a "translated" page announces that it is not.
-  const nextSendLabel = new Intl.DateTimeFormat(locale, {
-    timeZone: profile.timezone,
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(nextSend);
+  const nextSendLabel = nextDigestLabel(profile, locale);
 
   const ready = subscriptions.length > 0 && genrePrefs.length > 0;
 
@@ -223,6 +230,53 @@ export default async function OverviewPage() {
                   {pref.source === "feed" ? (
                     <span className="label-pixel">{t("overview.genres.fromFeeds")}</span>
                   ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
+
+      {/* Full width rather than a third column: artist names are long and there can be
+          two dozen of them, so they wrap as chips instead of stacking into a strip. */}
+      <section>
+        <SectionHeading
+          hint={
+            artistCount > artists.length
+              ? t("overview.artists.hintMore", {
+                  shown: artists.length,
+                  count: artistCount,
+                })
+              : t("overview.artists.hint")
+          }
+        >
+          {t("overview.artists.heading")}
+        </SectionHeading>
+        <Card className="p-5">
+          {artists.length === 0 ? (
+            <EmptyState title={t("common.noneYet")}>
+              <ButtonLink href="/app/subscriptions" variant="outline">
+                {t("overview.artists.add")}
+              </ButtonLink>
+            </EmptyState>
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {artists.map((artist) => (
+                <li
+                  key={artist.id}
+                  className="flex items-center gap-2 border border-border bg-surface-raised px-3 py-1.5 text-xs"
+                >
+                  {/* Same colour language as the genres card: pixel-1 for something
+                      you chose, pixel-3 for something we inferred. */}
+                  <PixelDot
+                    size={6}
+                    color={
+                      artist.source === "explicit"
+                        ? "var(--pixel-1)"
+                        : "var(--pixel-3)"
+                    }
+                  />
+                  <span className="text-text">{artist.name}</span>
                 </li>
               ))}
             </ul>

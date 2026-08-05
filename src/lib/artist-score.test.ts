@@ -6,6 +6,7 @@ import {
   FEED_ARTIST_SCORE_CAP,
   SPOTIFY_TOP_SCORE,
   accumulateFeedScore,
+  artistSelectionDelta,
   spotifyRankScore,
 } from "./artist-score";
 
@@ -69,4 +70,42 @@ test("a single Spotify artist gets the top of the band, not NaN", () => {
   // The taper divides by (total - 1). One artist is realistic for a new account.
   assert.equal(spotifyRankScore(0, 1), SPOTIFY_TOP_SCORE);
   assert.ok(Number.isFinite(spotifyRankScore(0, 1)));
+});
+
+test("an artist edit survives a mid-edit refresh, a save, and a retire", () => {
+  // Three writers touch artist_prefs behind the editor's back and each refreshes the page,
+  // so none of these four states is reachable in a browser without racing a server write —
+  // which is why the rule is pure and tested here instead.
+  const savedOn = new Set([1, 2]);
+  const intent = new Map([
+    [1, false],
+    [3, true],
+  ]);
+
+  assert.deepEqual(artistSelectionDelta([1, 2, 3], savedOn, intent), {
+    on: [3],
+    off: [1],
+  });
+
+  // A screenshot confirm calls router.refresh() on this same page, so artist 4 can arrive
+  // already followed while an un-tick of artist 1 is still pending. It must not be touched.
+  assert.deepEqual(artistSelectionDelta([1, 2, 3, 4], savedOn, intent), {
+    on: [3],
+    off: [1],
+  });
+
+  // Once the save has landed the server agrees with the intent, so Save goes quiet rather
+  // than re-sending the writes or ticking artist 1 back on. This is what lets save() skip
+  // resetting state, and skipping the reset is what removes the post-save flicker.
+  assert.deepEqual(artistSelectionDelta([1, 2, 3, 4], new Set([2, 3]), intent), {
+    on: [],
+    off: [],
+  });
+
+  // A Spotify retire deleted row 3 while its box was ticked. A stale intent entry for a
+  // row that no longer exists must not leave Save armed forever.
+  assert.deepEqual(artistSelectionDelta([1, 2], new Set([2]), intent), {
+    on: [],
+    off: [],
+  });
 });

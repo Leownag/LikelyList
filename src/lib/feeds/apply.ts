@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/normalize";
-import { accumulateFeedScore } from "@/lib/artist-score";
+import { accumulateFeedScore, OPTED_OUT_SCORE } from "@/lib/artist-score";
 import { createTicketmasterClient } from "@/lib/ticketmaster/client";
 import {
   findAttractionByName,
@@ -204,9 +204,19 @@ export async function applyFeed(
       ),
     );
 
+    // A zero score is a deliberate opt-out, not a low opinion. This upsert is on
+    // (user_id, normalized_name), so without the filter the next screenshot naming
+    // somebody the reader switched off would quietly switch them back on.
+    const optedOut = new Set(
+      [...scoreByName]
+        .filter(([, score]) => score <= OPTED_OUT_SCORE)
+        .map(([name]) => name),
+    );
+
     const now = new Date().toISOString();
-    await supabase.from("artist_prefs").upsert(
-      deduped.map((artist) => ({
+    const rows = deduped
+      .filter((artist) => !optedOut.has(artist.normalized))
+      .map((artist) => ({
         user_id: userId,
         name: artist.name,
         normalized_name: artist.normalized,
@@ -222,9 +232,13 @@ export async function applyFeed(
         ),
         source: "feed" as const,
         last_seen_at: now,
-      })),
-      { onConflict: "user_id,normalized_name" },
-    );
+      }));
+
+    if (rows.length > 0) {
+      await supabase
+        .from("artist_prefs")
+        .upsert(rows, { onConflict: "user_id,normalized_name" });
+    }
   }
 
   // Genre preferences — insert only, never update.

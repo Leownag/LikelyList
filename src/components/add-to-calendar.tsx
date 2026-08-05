@@ -110,7 +110,7 @@ export function AddToCalendar({
       {open ? (
         <ul
           role="menu"
-          className="absolute right-0 z-30 mt-1 min-w-52 border border-border-strong bg-surface-raised shadow-lg"
+          className="absolute right-0 top-full z-30 mt-1 min-w-52 border border-border-strong bg-surface-raised shadow-lg"
         >
           <li role="none">
             <a

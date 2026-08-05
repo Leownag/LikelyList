@@ -5,9 +5,23 @@ import { readEnv } from "@/lib/env";
 import { buildDigest } from "@/lib/digest/build";
 import { sendDigestEmail, describeSenderReadiness } from "@/lib/digest/send";
 import { renderWithinSizeBudget } from "@/lib/email/render";
-import { digestWindow } from "@/lib/time";
+import { digestWindow, localDateString } from "@/lib/time";
 import { GMAIL_CLIP_BYTES } from "@/lib/email/render";
 import type { Profile } from "@/lib/db";
+
+/**
+ * One build every three minutes.
+ *
+ * Both modes are expensive — a build queries the event cache and renders the whole
+ * email, and `?send=1` calls Resend on top — and both are reachable from a plain
+ * button, so a bored click is enough to run them back to back.
+ *
+ * ponytail: a fixed window rather than a rolling one — the counter table is keyed by
+ * day, so the window goes in the counter's *name*, the same trick /api/explore uses
+ * for its per-visitor hourly cap. Worst case is two builds either side of a boundary.
+ * Add `profiles.last_preview_at` if that ever matters.
+ */
+const COOLDOWN_MS = 180_000;
 
 /**
  * Builds the signed-in user's digest right now.
@@ -49,7 +63,32 @@ export async function POST(request: NextRequest) {
     .maybeSingle<Pick<Profile, "timezone" | "email">>();
 
   const timezone = profile?.timezone ?? "America/New_York";
-  const window = digestWindow(new Date(), timezone);
+
+  // Increment-then-check, atomic in the RPC, so two clicks in flight at once cannot
+  // both read "0 so far". Service-role client on purpose: 0004 revoked bump_usage
+  // from `authenticated`.
+  const now = Date.now();
+  const bucket = Math.floor(now / COOLDOWN_MS);
+  const { data: usedThisWindow } = await supabase.rpc("bump_usage", {
+    p_user_id: user.id,
+    p_kind: `digest_preview:${bucket}`,
+    p_day: localDateString(timezone, new Date(now)),
+    p_amount: 1,
+  });
+
+  if (typeof usedThisWindow === "number" && usedThisWindow > 1) {
+    const retryAfterSeconds = Math.ceil(((bucket + 1) * COOLDOWN_MS - now) / 1000);
+    return NextResponse.json(
+      {
+        sent: false,
+        error: `You just built one. Try again in ${retryAfterSeconds}s.`,
+        retryAfterSeconds,
+      },
+      { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+    );
+  }
+
+  const window = digestWindow(new Date(now), timezone);
 
   const digest = await buildDigest(supabase, env, user.id, {
     startDate: window.startDate,

@@ -88,7 +88,12 @@ export async function buildDigest(
       supabase
         .from("artist_prefs")
         .select("normalized_name, name, score")
-        .eq("user_id", userId),
+        .eq("user_id", userId)
+        // Same opt-out filter as the genre query above. A zero score adds nothing to
+        // artistBoost either way, but an unfiltered row still counts toward
+        // artistScores.size — which decides `unfiltered` — and would still be named in
+        // matchedArtists, so the switched-off artist would appear in the email.
+        .gt("score", 0),
       supabase.from("genres").select("id, tm_genre_id, name"),
     ]);
 

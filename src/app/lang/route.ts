@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isLocale } from "@/lib/i18n/locales";
+import { isEnabledLocale } from "@/lib/i18n/locales";
 import { LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE } from "@/lib/i18n/cookie";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   const response = NextResponse.redirect(new URL(next, request.nextUrl.origin));
 
-  if (isLocale(to)) {
+  if (isEnabledLocale(to)) {
     response.cookies.set(LOCALE_COOKIE, to, {
       path: "/",
       maxAge: LOCALE_COOKIE_MAX_AGE,

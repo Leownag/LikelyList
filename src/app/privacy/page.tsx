@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { PixelRule } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
+import { PublicHeader } from "@/components/public-header";
 
 export const metadata = {
   title: "Privacy",
@@ -24,17 +25,23 @@ export const metadata = {
 
 const UPDATED = "4 August 2026";
 
-export default function PrivacyPage() {
-  // Read directly rather than through readEnv(), which hard-requires the Supabase
-  // variables — this page is static and should not depend on them.
-  const contact =
-    (process.env.EMAIL_UNSUBSCRIBE_MAILTO ?? "").trim() ||
-    "the address in your digest footer";
+/**
+ * Hardcoded, and deliberately not EMAIL_UNSUBSCRIBE_MAILTO.
+ *
+ * That variable is the RFC 8058 List-Unsubscribe inbox, which is machine-read and
+ * auto-processed — an erasure request sent there would be silently consumed by the
+ * automation. It is also unset in this deployment, which left this page telling readers
+ * to use "the address in your digest footer", useless to anyone who has never had one.
+ *
+ * A published commitment in a legal document is not configuration.
+ */
+const CONTACT = "help@likelylist.tech";
 
+export default function PrivacyPage() {
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 py-10">
+      <PublicHeader />
       <header>
-        <Wordmark />
         <p className="label-pixel mt-6">privacy</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
           What we hold, and what we don&apos;t
@@ -222,7 +229,11 @@ export default function PrivacyPage() {
 
         <Section title="Contact">
           <p>
-            Questions, corrections, or a request to remove something: {contact}.
+            Questions, corrections, or a request to remove something:{" "}
+            <a className="underline hover:text-text" href={`mailto:${CONTACT}`}>
+              {CONTACT}
+            </a>
+            .
           </p>
         </Section>
 
