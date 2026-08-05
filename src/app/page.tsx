@@ -1,21 +1,24 @@
 import { ButtonLink } from "@/components/ui";
 import { PixelMosaic, PixelRule, PixelDot } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
-import { LanguageSwitch } from "@/components/language-switch";
+import { PublicHeader } from "@/components/public-header";
 import { StepCities, StepFeed, StepEmail } from "@/components/step-art";
+import { ServiceIconImg } from "@/components/service-icon-img";
 import {
   AnonymousSubscribe,
   type SubscribeCity,
   type SubscribeGenre,
 } from "@/components/anonymous-subscribe";
+import { DigestOnTheWay } from "@/components/digest-on-the-way";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getUser } from "@/lib/supabase/server";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { readEnv } from "@/lib/env";
-import type { City, Genre } from "@/lib/db";
+import { nextDigestLabel } from "@/lib/time";
+import type { City, Genre, Profile } from "@/lib/db";
 import type { Metadata } from "next";
 import { siteUrlFromEnv, localePath, localeAlternates } from "@/lib/site-url";
 import { getLocale } from "@/lib/i18n/server";
-import { isLocale, LOCALE_HTML_LANG, type Locale } from "@/lib/i18n/locales";
+import { isEnabledLocale, LOCALE_HTML_LANG, type Locale } from "@/lib/i18n/locales";
 import { translator } from "@/lib/i18n/messages";
 
 /**
@@ -54,7 +57,7 @@ async function resolveLocale(
 ): Promise<Locale> {
   const lang = (await searchParams).lang;
   const explicit = Array.isArray(lang) ? lang[0] : lang;
-  return isLocale(explicit) ? explicit : await getLocale();
+  return isEnabledLocale(explicit) ? explicit : await getLocale();
 }
 
 /**
@@ -112,10 +115,14 @@ const OG_LOCALE: Record<Locale, string> = { en: "en_US", "zh-Hant": "zh_TW" };
 async function loadPickers(): Promise<{
   cities: SubscribeCity[];
   genres: SubscribeGenre[];
+  spotify: boolean;
 }> {
   try {
     const env = readEnv();
-    if (!env.supabaseServiceRoleKey) return { cities: [], genres: [] };
+    // Returned from in here rather than read in the page: readEnv() throws without the
+    // Supabase variables, and this try is the only place already prepared for that.
+    const spotify = Boolean(env.spotifyClientId);
+    if (!env.supabaseServiceRoleKey) return { cities: [], genres: [], spotify };
 
     const supabase = createAdminClient(env);
     const [citiesResult, genresResult] = await Promise.all([
@@ -134,9 +141,33 @@ async function loadPickers(): Promise<{
       genres: ((genresResult.data ?? []) as Pick<Genre, "id" | "name">[]).map(
         (genre) => ({ id: genre.id, name: genre.name }),
       ),
+      spotify,
     };
   } catch {
-    return { cities: [], genres: [] };
+    return { cities: [], genres: [], spotify: false };
+  }
+}
+
+/**
+ * The signed-in reader's delivery schedule, or null.
+ *
+ * Read through the session client rather than the admin one — RLS already scopes
+ * `profiles` to the row asking, so there is no id to pass and no way to ask for
+ * somebody else's. Null on any failure: this block is a nicety, and the page still
+ * has a subscribe box to fall back to.
+ */
+type Schedule = Pick<Profile, "timezone" | "digest_send_hour" | "digest_enabled">;
+
+async function loadSchedule(): Promise<Schedule | null> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("profiles")
+      .select("timezone, digest_send_hour, digest_enabled")
+      .maybeSingle<Schedule>();
+    return data;
+  } catch {
+    return null;
   }
 }
 
@@ -148,12 +179,17 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   //
   // Cheap: this page is force-dynamic anyway, and getUser() is one cookie read plus a
   // token check.
-  const [{ cities, genres }, user, locale] = await Promise.all([
+  const [{ cities, genres, spotify }, user, locale] = await Promise.all([
     loadPickers(),
     getUser(),
     resolveLocale(searchParams),
   ]);
   const t = translator(locale);
+
+  // Second round-trip, and only for the minority who are signed in: the schedule is the
+  // whole point of what they get shown instead of the subscribe box, and it cannot be
+  // asked for until getUser() has said who they are.
+  const profile = user ? await loadSchedule() : null;
 
   return (
     // `lang` here rather than on <html>: the root layout resolves the locale from the
@@ -180,27 +216,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           }),
         }}
       />
-      <header className="flex items-center justify-between">
-        <Wordmark href={null} />
-        {/* No primary button up here on purpose. The subscribe box below is the
-            page's one primary action, and a header CTA pointing at /login was
-            competing with it — offering a longer path to the same thing. */}
-        <nav className="flex items-center gap-2">
-          <LanguageSwitch className="mr-1" />
-          <ButtonLink href="/explore" variant="ghost">
-            {t("common.explore")}
-          </ButtonLink>
-          {user ? (
-            <ButtonLink href="/app" variant="ghost">
-              {t("nav.feed")}
-            </ButtonLink>
-          ) : (
-            <ButtonLink href="/login" variant="ghost">
-              {t("common.signIn")}
-            </ButtonLink>
-          )}
-        </nav>
-      </header>
+      <PublicHeader current="home" signedIn={Boolean(user)} t={t} />
 
       <section className="mt-20 flex items-start justify-between gap-8">
         <div className="max-w-xl">
@@ -212,10 +228,20 @@ export default async function Home({ searchParams }: PageProps<"/">) {
             {t("landing.sub")}
           </p>
 
-          {/* Both lists are required: the box asks for a city and at least one
+          {/* Somebody already subscribed does not need the subscribe box; what they
+              came here for is when the next one arrives. Needs the profile too — with
+              no schedule to show, the box below is still a truthful thing to render. */}
+          {profile ? (
+            <div className="mt-8">
+              <DigestOnTheWay
+                nextSendLabel={nextDigestLabel(profile, locale)}
+                paused={!profile.digest_enabled}
+              />
+            </div>
+          ) : /* Both lists are required: the box asks for a city and at least one
               genre, so rendering it against an unseeded database would produce a
-              form that cannot be submitted. */}
-          {cities.length > 0 && genres.length > 0 ? (
+              form that cannot be submitted. */
+          cities.length > 0 && genres.length > 0 ? (
             <>
               <div className="mt-8">
                 <AnonymousSubscribe cities={cities} genres={genres} />
@@ -271,6 +297,26 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           </div>
         ))}
       </section>
+
+      {/* After the steps, not before: step 02 has just promised that a screenshot can
+          fill in your artists, and this is the same promise without the screenshot. It
+          needs that context to read as an upgrade rather than a second funnel. */}
+      {spotify ? (
+        <>
+          <PixelRule className="mt-16" />
+
+          <section className="mt-12">
+            <ServiceIconImg service="spotify" size={21} />
+            <p className="label-pixel mt-3">{t("landing.spotify.label")}</p>
+            <h2 className="mt-2 text-base font-semibold tracking-tight">
+              {t("landing.spotify.title")}
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+              {t("landing.spotify.body")}
+            </p>
+          </section>
+        </>
+      ) : null}
 
       <PixelRule className="mt-16" />
 

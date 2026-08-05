@@ -190,6 +190,7 @@ replacing its default nameservers with the two Cloudflare assigned.
 | --- | --- |
 | The app | Added for you by Workers → *Settings* → *Domains & Routes* → *Add custom domain* (`likelylist.tech`, and `www` if you want it) |
 | Inbound unsubscribe | Cloudflare **Email Routing** → route `unsubscribe@likelylist.tech` to your real inbox (free). This is what `EMAIL_UNSUBSCRIBE_MAILTO` points at |
+| Privacy contact | Email Routing → route `help@likelylist.tech` to your real inbox. Hardcoded in `src/app/privacy/page.tsx`, so it is a published commitment in a legally-required document — without this route, erasure requests bounce. Deliberately not the unsubscribe address: that one is machine-read and auto-processed |
 | Resend SPF | `TXT` on `mail.likelylist.tech`, value from Resend |
 | Resend DKIM | Record from Resend on `resend._domainkey.mail.likelylist.tech` |
 | DMARC | `TXT` on `_dmarc.mail.likelylist.tech`, start at `v=DMARC1; p=none; rua=mailto:you@likelylist.tech` |
@@ -826,6 +827,9 @@ Ordered so nothing waits on something later in the list.
 - [ ] `EMAIL_FROM` is an address on that verified subdomain — there is no default
       sender, so a missing or unverified value fails the send rather than quietly
       delivering from somewhere else
+- [ ] `help@likelylist.tech` routed to a real inbox in Email Routing — `/privacy`
+      publishes it as the contact for corrections and erasure requests, so an
+      unrouted address turns a legal commitment into a bounce
 - [ ] All secrets pushed with `wrangler secret put`
 - [ ] ⚠️ **Build with production environment values, not `.env.local`.** `robots.txt`
       and `sitemap.xml` are prerendered and `metadataBase` in `src/app/layout.tsx`
