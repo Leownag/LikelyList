@@ -60,6 +60,11 @@
    force-inverting form controls and scrollbars. */
 html {
   color-scheme: dark;
+  /* Reserve the scrollbar gutter permanently. layout.tsx puts `h-full` on <html> and
+     `min-h-full` on <body>, which leaves a short page exactly viewport-tall — so anything
+     that grows the document, an open dropdown or a list one row longer, summons a
+     scrollbar and narrows the content box, shifting the whole page sideways. */
+  scrollbar-gutter: stable;
 }
 
 body {
