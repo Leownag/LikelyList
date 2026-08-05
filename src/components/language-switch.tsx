@@ -1,14 +1,22 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { LOCALES, LOCALE_LABELS, LOCALE_SHORT, isLocale } from "@/lib/i18n/locales";
+import {
+  ENABLED_LOCALES,
+  LOCALE_LABELS,
+  LOCALE_SHORT,
+  isLocale,
+} from "@/lib/i18n/locales";
 import { useLocale } from "@/lib/i18n/client";
 
 /**
  * EN / 中文, in the header.
  *
- * Two locales, so this is a pair of links rather than a dropdown: a `<select>` for two
- * options costs a click and a menu to say what two words already say.
+ * Links rather than a dropdown: a `<select>` for two options costs a click and a menu to
+ * say what two words already say.
+ *
+ * Renders nothing while only one locale is served, so the call sites stay in place for
+ * whenever the second one comes back — see ENABLED_LOCALES.
  *
  * Client-side only because it needs the current path to come back to. The links go through
  * /lang, which sets the cookie and redirects — so the choice survives the next navigation,
@@ -18,6 +26,10 @@ export function LanguageSwitch({ className = "" }: { className?: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const fromContext = useLocale();
+
+  // After the hooks, not before: an early return above them is what the rules-of-hooks
+  // lint actually objects to, and the condition is a module constant either way.
+  if (ENABLED_LOCALES.length < 2) return null;
 
   // `?lang=` wins over the provider, because the landing page honours it per request for
   // crawlability (see localePath in lib/site-url) while the provider only ever sees the
@@ -31,7 +43,7 @@ export function LanguageSwitch({ className = "" }: { className?: string }) {
 
   return (
     <div className={`flex items-center ${className}`} role="group" aria-label="Language">
-      {LOCALES.map((locale) =>
+      {ENABLED_LOCALES.map((locale) =>
         locale === current ? (
           <span
             key={locale}

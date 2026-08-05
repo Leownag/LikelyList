@@ -1,9 +1,9 @@
 import {
   DEFAULT_LOCALE,
-  LOCALES,
+  ENABLED_LOCALES,
   LOCALE_HTML_LANG,
   LOCALE_LABELS,
-  isLocale,
+  isEnabledLocale,
   localeFromAcceptLanguage,
   type Locale,
 } from "./locales";
@@ -29,8 +29,9 @@ export function localeFromRequest(request: {
   url?: string;
 }): Locale {
   const explicit = readLangParam(request);
-  if (isLocale(explicit)) return explicit;
-  return localeFromAcceptLanguage(request.headers.get("accept-language"));
+  if (isEnabledLocale(explicit)) return explicit;
+  const fromHeader = localeFromAcceptLanguage(request.headers.get("accept-language"));
+  return isEnabledLocale(fromHeader) ? fromHeader : DEFAULT_LOCALE;
 }
 
 export type RequestI18n = {
@@ -78,7 +79,7 @@ export function languageChoices(
 ): LanguageChoice[] {
   const url = requestUrl(request);
 
-  return LOCALES.map((locale) => {
+  return ENABLED_LOCALES.map((locale) => {
     const target = new URL(url);
     target.searchParams.set("lang", locale);
     return {

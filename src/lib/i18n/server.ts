@@ -2,7 +2,7 @@ import { cookies, headers } from "next/headers";
 import {
   DEFAULT_LOCALE,
   LOCALE_HTML_LANG,
-  isLocale,
+  isEnabledLocale,
   localeFromAcceptLanguage,
   type Locale,
 } from "./locales";
@@ -22,10 +22,11 @@ import { translator, type Translate } from "./messages";
 export async function getLocale(): Promise<Locale> {
   const store = await cookies();
   const chosen = store.get(LOCALE_COOKIE)?.value;
-  if (isLocale(chosen)) return chosen;
+  if (isEnabledLocale(chosen)) return chosen;
 
   const header = (await headers()).get("accept-language");
-  return localeFromAcceptLanguage(header);
+  const fromHeader = localeFromAcceptLanguage(header);
+  return isEnabledLocale(fromHeader) ? fromHeader : DEFAULT_LOCALE;
 }
 
 export type ServerI18n = {

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import sitemap from "./sitemap";
 import robots from "./robots";
 import { siteUrlFromEnv, localePath } from "@/lib/site-url";
-import { LOCALES } from "@/lib/i18n/locales";
+import { ENABLED_LOCALES } from "@/lib/i18n/locales";
 
 test("every sitemap URL is absolute and on our own origin", () => {
   const siteUrl = siteUrlFromEnv();
@@ -50,10 +50,14 @@ test("no sitemap URL is disallowed by robots.txt", () => {
  */
 test("every locale of the landing page is listed and points at all the others", () => {
   const siteUrl = siteUrlFromEnv();
-  const expected = new Set(LOCALES.map((l) => `${siteUrl}${localePath("/", l)}`));
+  const expected = new Set(ENABLED_LOCALES.map((l) => `${siteUrl}${localePath("/", l)}`));
 
   const landing = sitemap().filter((entry) => expected.has(entry.url));
-  assert.equal(landing.length, LOCALES.length, "a locale of / is missing from the sitemap");
+  assert.equal(
+    landing.length,
+    ENABLED_LOCALES.length,
+    "a served locale of / is missing from the sitemap",
+  );
 
   for (const entry of landing) {
     const languages = entry.alternates?.languages ?? {};

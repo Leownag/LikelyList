@@ -1,4 +1,4 @@
-import { DEFAULT_LOCALE, LOCALES, type Locale } from "./i18n/locales";
+import { DEFAULT_LOCALE, ENABLED_LOCALES, type Locale } from "./i18n/locales";
 
 /**
  * The site's public origin, without pulling in the full env reader.
@@ -39,6 +39,6 @@ export function localePath(path: string, locale: Locale): string {
  */
 export function localeAlternates(path: string): Record<string, string> {
   const languages: Record<string, string> = { "x-default": path };
-  for (const locale of LOCALES) languages[locale] = localePath(path, locale);
+  for (const locale of ENABLED_LOCALES) languages[locale] = localePath(path, locale);
   return languages;
 }

@@ -16,6 +16,19 @@ export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = "en";
 
+/**
+ * The locales actually served.
+ *
+ * zh-Hant is written, maintained and kept in the catalogue — it is switched off, not
+ * removed, because a half-served language is worse than one language done properly.
+ * Re-enabling is this one line: `= LOCALES`.
+ *
+ * Deliberately separate from LOCALES rather than a narrowing of it: narrowing `Locale`
+ * makes every catalogue and label record a type error, which is a large diff to pay for
+ * a temporary decision.
+ */
+export const ENABLED_LOCALES: readonly Locale[] = [DEFAULT_LOCALE];
+
 /** Shown in the language switcher, each in its own language. */
 export const LOCALE_LABELS: Record<Locale, string> = {
   en: "English",
@@ -36,6 +49,16 @@ export const LOCALE_HTML_LANG: Record<Locale, string> = {
 
 export function isLocale(value: string | null | undefined): value is Locale {
   return Boolean(value) && (LOCALES as readonly string[]).includes(value as string);
+}
+
+/**
+ * Is this a locale we currently serve?
+ *
+ * The gate every request goes through. `isLocale` stays a truthful answer to "is this a
+ * tag we have a catalogue for", which is what the translation tooling and tests need.
+ */
+export function isEnabledLocale(value: string | null | undefined): value is Locale {
+  return isLocale(value) && ENABLED_LOCALES.includes(value);
 }
 
 /**

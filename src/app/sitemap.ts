@@ -1,10 +1,9 @@
 import type { MetadataRoute } from "next";
 import { siteUrlFromEnv, localePath, localeAlternates } from "@/lib/site-url";
-import { DEFAULT_LOCALE, LOCALES } from "@/lib/i18n/locales";
+import { DEFAULT_LOCALE, ENABLED_LOCALES } from "@/lib/i18n/locales";
 
 /**
- * The pages that should be indexed: three of them, four URLs, because the landing page
- * has one per locale.
+ * The pages that should be indexed: three of them, one URL per page per served locale.
  *
  * Everything else is either behind sign-in or carries a token in the URL, so
  * listing it would be actively harmful rather than merely useless. Keep this in
@@ -25,7 +24,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   );
 
   return [
-    ...LOCALES.map((locale) => ({
+    ...ENABLED_LOCALES.map((locale) => ({
       url: `${siteUrl}${localePath("/", locale)}`,
       changeFrequency: "weekly" as const,
       // English stays the primary. The translation is a real page, not an equal one — it
