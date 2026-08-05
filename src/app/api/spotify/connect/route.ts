@@ -22,8 +22,16 @@ export async function GET(request: NextRequest) {
 
   const user = await getUser();
   if (!user) {
+    // Back to this same route, not to the editor: connecting Spotify is what they
+    // asked for, so signing in should finish that rather than leave them somewhere
+    // near it. The emailed link carries `next` through — the auth templates build on
+    // {{ .RedirectTo }}, which is the emailRedirectTo the login form sends — so
+    // clicking it returns here with a session and the flow continues into Spotify.
+    //
+    // Degrades safely if the Redirect URLs allow-list drops it: Supabase falls back to
+    // the Site URL, and the connect button is in the /app header either way.
     return NextResponse.redirect(
-      new URL(`/login?next=${encodeURIComponent("/app/subscriptions")}`, origin),
+      new URL(`/login?next=${encodeURIComponent("/api/spotify/connect")}`, origin),
     );
   }
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
-import { ButtonLink } from "@/components/ui";
+import { ButtonLink, Notice } from "@/components/ui";
 import { PixelMosaic } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
 import { LanguageSwitch } from "@/components/language-switch";
@@ -58,6 +58,15 @@ export default async function LoginPage({
           </Link>
         </div>
       </div>
+      {/* Arriving from the landing page's Spotify button, this page is otherwise an
+          unexplained demand for an address. The form's own copy cannot say why, because
+          it does not know what sent them here. */}
+      {next.startsWith("/api/spotify/connect") ? (
+        <div className="mb-6">
+          <Notice tone="info">{t("login.spotify")}</Notice>
+        </div>
+      ) : null}
+
       <LoginForm
         next={next}
         initialError={typeof params.error === "string" ? params.error : null}

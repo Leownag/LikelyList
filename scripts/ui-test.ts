@@ -224,6 +224,27 @@ async function main() {
       return path(page);
     });
 
+    // The landing page's Spotify button, for somebody with no account. The consent screen
+    // itself is out of scope for this suite, but the part that used to be wrong is not:
+    // the bounce has to come back to the connect route, or signing in strands the reader
+    // on the editor having never bound anything.
+    await check("the landing Spotify button sends a stranger to sign in first", async () => {
+      await go(page, "/");
+      const connect = page.getByRole("link", { name: /Connect with Spotify/i }).first();
+      if ((await connect.count()) === 0) return "skip: SPOTIFY_CLIENT_ID is not set";
+
+      await connect.click();
+      await page.waitForURL(/\/login\?/, { timeout: 30_000 });
+      assert(
+        decodeURIComponent(path(page)).includes("next=/api/spotify/connect"),
+        `sign-in would not resume the connect: ${path(page)}`,
+      );
+      const shown = await page.locator("main").innerText();
+      assert(/spotify/i.test(shown), "nothing on /login explains why an address is needed");
+      await shot(page, "login-spotify");
+      return path(page);
+    });
+
     for (const guarded of ["/app", "/app/feed", "/app/pinned", "/app/subscriptions", "/app/settings"]) {
       await check(`${guarded} redirects a stranger to /login`, async () => {
         await go(page, guarded);

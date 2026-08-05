@@ -807,10 +807,13 @@ Ordered so nothing waits on something later in the list.
       limited to a handful of messages an hour, and sign-in links are now the only
       way in — a throttled one is a lockout, not a delay
 - [ ] **Both** the "Magic link or OTP" *and* "Confirm sign up" templates pointed at
-      `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=…&next=/app`
-      — **not** `{{ .ConfirmationURL }}`, which produces a `code` that cannot be
-      exchanged from a different browser. The signup one is what a first-time
-      address actually receives
+      `{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=…`, as the files in
+      `supabase/email-templates/` do — **not** `{{ .ConfirmationURL }}`, which
+      produces a `code` that cannot be exchanged from a different browser, and
+      **not** `{{ .SiteURL }}` with a hardcoded `next`, which throws away the
+      `next` the app sent and so breaks every flow that resumes after sign-in
+      (currently: the digest's in-app links, and the landing page's Spotify
+      button). The signup one is what a first-time address actually receives
 - [ ] **Site URL** is the real domain, and *Redirect URLs* holds the two exact
       `/auth/callback` paths with the default `http://localhost:3000/**` wildcard
       removed. A stale Site URL is silent: the templates build their footer links

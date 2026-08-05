@@ -4,6 +4,7 @@ import { Wordmark } from "@/components/wordmark";
 import { PublicHeader } from "@/components/public-header";
 import { StepCities, StepFeed, StepEmail } from "@/components/step-art";
 import { ServiceIconImg } from "@/components/service-icon-img";
+import { SpotifyConnectButton } from "@/components/spotify-connect";
 import {
   AnonymousSubscribe,
   type SubscribeCity,
@@ -314,6 +315,18 @@ export default async function Home({ searchParams }: PageProps<"/">) {
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
               {t("landing.spotify.body")}
             </p>
+
+            {/* Anonymous readers are the point of this button being here, and
+                /api/spotify/connect already handles them: it bounces to /login with a
+                `next` back to itself, so the emailed link resumes the connect. */}
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <SpotifyConnectButton />
+              {user ? null : (
+                <span className="text-xs text-faint">
+                  {t("landing.spotify.signIn")}
+                </span>
+              )}
+            </div>
           </section>
         </>
       ) : null}
