@@ -150,6 +150,37 @@ export function nextWeekdayAt(
   return target;
 }
 
+/** The digest goes out on a Friday, in the reader's own timezone. */
+export const DIGEST_WEEKDAY = 5;
+
+/**
+ * When the next digest lands, spelled out for the reader.
+ *
+ * The reader's locale, not en-US: an English weekday inside Chinese body copy is
+ * the most visible way a "translated" page announces that it is not.
+ */
+export function nextDigestLabel(
+  profile: { timezone: string; digest_send_hour: number },
+  locale: string,
+  now = new Date(),
+): string {
+  const next = nextWeekdayAt(
+    now,
+    profile.timezone,
+    DIGEST_WEEKDAY,
+    profile.digest_send_hour,
+  );
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: profile.timezone,
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(next);
+}
+
 /** "Fri, Aug 7" style label for an event's local date, without re-zoning it. */
 export function formatEventDate(localDate: string): string {
   const [year, month, day] = localDate.split("-").map(Number);
