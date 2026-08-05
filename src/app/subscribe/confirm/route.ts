@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         const target = new URL("/auth/callback", env.siteUrl);
         target.searchParams.set("token_hash", outcome.signInTokenHash);
         target.searchParams.set("type", "magiclink");
-        target.searchParams.set("next", "/app/subscriptions");
+        target.searchParams.set("next", "/app/subscriptions?subscribed=1");
         return NextResponse.redirect(target, 303);
       }
 
