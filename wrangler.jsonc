@@ -10,6 +10,18 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 
+  // Bound here rather than in the dashboard so a deploy from a clean checkout
+  // lands on the real domain without anyone remembering to click anything.
+  // `custom_domain` makes Cloudflare own the apex record; there is deliberately
+  // no workers.dev subdomain, so this is the only way in.
+  "routes": [{ "pattern": "likelylist.tech", "custom_domain": true }],
+
+  // The account needs a workers.dev subdomain registered before the cron
+  // schedules API will accept anything, but the app must not be reachable there:
+  // a second live origin serving the same pages contradicts every canonical tag,
+  // which are baked from NEXT_PUBLIC_SITE_URL at build time.
+  "workers_dev": false,
+
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
