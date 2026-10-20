@@ -143,6 +143,44 @@ export function Notice({
   );
 }
 
+/**
+ * The result of something the reader just did, said where they did it.
+ *
+ * This component is new because the app had nothing of the kind, which is why
+ * saving your settings, following a town, disconnecting Spotify and a failed pin
+ * were all completely silent — not an oversight in each place, just nothing to
+ * reach for. ArtistSearch had grown its own one-off version; this is that,
+ * generalised.
+ *
+ * Inline rather than a floating toast on purpose. What readers reported missing
+ * was not a notification but legibility: where a pinned show went, why a button
+ * was disabled, whether a save landed. An answer that drifts away after three
+ * seconds does not help with any of those, and it is the harder thing for
+ * assistive tech to catch.
+ *
+ * `role="status"` makes it an assertive-enough live region that a screen reader
+ * announces it without interrupting, which is the right level for "Saved."
+ */
+export function StatusLine({
+  tone = "success",
+  children,
+}: {
+  tone?: "success" | "error";
+  children?: ReactNode;
+}) {
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      // Always rendered, even with nothing to say: a live region that appears
+      // only when it has content is announced inconsistently across readers.
+      className={`text-xs ${tone === "error" ? "text-danger" : "text-muted"}`}
+    >
+      {children}
+    </p>
+  );
+}
+
 export function EmptyState({
   title,
   children,
