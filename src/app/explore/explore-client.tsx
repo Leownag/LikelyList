@@ -19,6 +19,7 @@ import {
   type PlacePoint,
   type PlaceSuggestion,
 } from "@/lib/explore/types";
+import { placeLabel } from "@/lib/places";
 
 type Mode = "city" | "zip";
 
@@ -94,7 +95,7 @@ export function ExploreClient({
           longitude: mode === "city" ? place?.longitude : undefined,
           placeLabel:
             mode === "city" && place
-              ? [place.name, place.stateCode].filter(Boolean).join(", ")
+              ? placeLabel(place.name, place.stateCode)
               : undefined,
           postalCode: mode === "zip" ? postalCode.trim() : null,
           genreIds: [...genreIds],
@@ -291,7 +292,7 @@ export function ExploreClient({
                 preset={{
                   label:
                     result.placeLabel ??
-                    [place?.name, place?.stateCode].filter(Boolean).join(", "),
+                    placeLabel(place?.name, place?.stateCode),
                   // A town chosen from the typeahead subscribes by GEOID; the detected
                   // metro nobody touched is a curated city, and keeping its slug is
                   // what keeps it visible in the city grid later.

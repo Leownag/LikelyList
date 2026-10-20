@@ -16,6 +16,7 @@ import { geocodePostalCode } from "@/lib/geocode";
 import { digestWindow, formatEventDate, formatEventTime } from "@/lib/time";
 import type { Genre } from "@/lib/db";
 import type { ExploreEvent } from "@/lib/explore/types";
+import { placeLabel as labelFor } from "@/lib/places";
 
 /**
  * Public event search for /explore. No sign-in, no email.
@@ -161,7 +162,7 @@ export async function POST(request: NextRequest) {
       );
     }
     centre = located;
-    placeLabel = [located.placeName, located.stateCode].filter(Boolean).join(", ");
+    placeLabel = labelFor(located.placeName, located.stateCode);
   } else if (body.latitude !== undefined && body.longitude !== undefined) {
     centre = { latitude: body.latitude, longitude: body.longitude };
     placeLabel = body.placeLabel ?? null;

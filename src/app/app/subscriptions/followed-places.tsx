@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Label, Notice } from "@/components/ui";
 import { CityTypeahead } from "@/components/city-typeahead";
+import { placeLabel } from "@/lib/places";
 import { followPlace, unfollowPlace } from "./actions";
 import type { PlaceSuggestion } from "@/lib/explore/types";
 
@@ -71,8 +72,7 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
     });
   }
 
-  const label = (place: FollowedPlace) =>
-    place.stateCode ? `${place.name}, ${place.stateCode}` : place.name;
+  const label = (place: FollowedPlace) => placeLabel(place.name, place.stateCode);
 
   return (
     <Card className="p-5">
