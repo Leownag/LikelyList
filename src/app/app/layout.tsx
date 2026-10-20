@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { requireProfile } from "@/lib/supabase/server";
 import { DEV_MODE_COOKIE, isDevMode } from "@/lib/dev-mode";
@@ -11,6 +10,7 @@ import { LanguageSwitch } from "@/components/language-switch";
 import { getT } from "@/lib/i18n/server";
 import { SpotifyConnectButton } from "@/components/spotify-connect";
 import { loadSpotifyState } from "@/lib/spotify/state";
+import { AppNav } from "./app-nav";
 
 const NAV = [
   { href: "/app", label: "nav.overview" },
@@ -81,17 +81,7 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
         </div>
       </header>
 
-      <nav className="mt-8 flex flex-wrap gap-1">
-        {NAV.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="border border-transparent px-3 py-1.5 text-sm text-muted hover:border-border hover:text-text"
-          >
-            {t(item.label)}
-          </Link>
-        ))}
-      </nav>
+      <AppNav items={NAV.map((item) => ({ href: item.href, label: t(item.label) }))} />
 
       <PixelRule className="mt-3" />
 
