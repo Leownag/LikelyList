@@ -36,6 +36,23 @@ const LIMIT = 12;
  */
 const CANDIDATES = 200;
 
+/**
+ * Shortest needle worth asking the "contains anywhere" question for.
+ *
+ * At two characters an unanchored match is mostly noise — "ma" is inside several
+ * thousand place names — and the prefix tier already answers it well.
+ */
+const MIN_CONTAINS = 4;
+
+type PlaceRow = {
+  geoid: string;
+  name: string;
+  state_code: string;
+  latitude: number;
+  longitude: number;
+  rank: number;
+};
+
 const QuerySchema = z.object({
   q: z.string().trim().min(1).max(64),
   /** "42.36,-71.06" — the reader's rough position, for ordering only. */
@@ -72,16 +89,18 @@ export async function GET(request: NextRequest) {
   const needle = parsed.data.q.toLowerCase();
   const supabase = createAdminClient(env);
 
-  // `like 'nash%'` against the search_key index, escaping the LIKE metacharacters so
-  // a literal % cannot turn one lookup into a full scan.
-  const prefix = `${needle.replace(/[%_\\]/g, "\\$&")}%`;
+  // Escaped so a literal % cannot turn one lookup into a full scan.
+  const escaped = needle.replace(/[%_\\]/g, "\\$&");
+  const COLUMNS = "geoid, name, state_code, latitude, longitude, rank";
 
+  // Tier 0: `like 'nash%'` against the search_key index — what the reader almost
+  // always means.
   const { data, error } = await supabase
     .from("places")
-    .select("geoid, name, state_code, latitude, longitude, rank")
+    .select(COLUMNS)
     // rank first so the curated metros and incorporated cities lead; name second so
     // the order is stable rather than whatever Postgres happens to return.
-    .like("search_key", prefix)
+    .like("search_key", `${escaped}%`)
     .order("rank")
     .order("name")
     .limit(CANDIDATES);
@@ -93,14 +112,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ places: [] });
   }
 
-  const rows = (data ?? []) as {
-    geoid: string;
-    name: string;
-    state_code: string;
-    latitude: number;
-    longitude: number;
-    rank: number;
-  }[];
+  const rows = (data ?? []) as PlaceRow[];
+
+  // Tier 1: anywhere in the flattened name, so "francisco" reaches San Francisco
+  // and "boston ma" reaches Boston. Strictly a lower tier — typing "cam" must
+  // still offer Cambridge before Birmingham, which merely contains "am".
+  //
+  // Only worth asking once the prefix tier has left room, and never for a needle
+  // so short that "contains" is noise.
+  const seen = new Set(rows.map((row) => row.geoid));
+  let extra: PlaceRow[] = [];
+  if (rows.length < CANDIDATES && needle.length >= MIN_CONTAINS) {
+    const { data: more, error: containsError } = await supabase
+      .from("places")
+      .select(COLUMNS)
+      .like("search_flat", `%${escaped.replace(/[\s,]+/g, " ")}%`)
+      .order("rank")
+      .order("name")
+      .limit(CANDIDATES - rows.length);
+
+    if (containsError) {
+      // Almost certainly migration 0017 not applied yet, in which case the column
+      // does not exist. The prefix tier above is a complete answer on its own, so
+      // this is logged and dropped rather than failing the request.
+      console.warn("[PLACES_SEARCH] contains tier unavailable:", containsError.message);
+    } else {
+      extra = ((more ?? []) as PlaceRow[]).filter((row) => !seen.has(row.geoid));
+    }
+  }
 
   // Band first, then distance from the reader inside the band.
   //
@@ -109,10 +148,15 @@ export async function GET(request: NextRequest) {
   // `rank` stops deciding — which is the whole point, because area is why
   // Camarillo, CA came before Cambridge, MA for somebody typing "cam" in Boston.
   const near = parseNear(parsed.data.near);
-  const ordered = near
-    ? rows
-        .map((row, index) => ({ row, index }))
-        .sort((a, b) => {
+  const tiered = [
+    ...rows.map((row, index) => ({ row, tier: 0, index })),
+    ...extra.map((row, index) => ({ row, tier: 1, index: rows.length + index })),
+  ];
+
+  const ordered = (
+    near
+      ? [...tiered].sort((a, b) => {
+          if (a.tier !== b.tier) return a.tier - b.tier;
           const band = placeBand(a.row.rank) - placeBand(b.row.rank);
           if (band !== 0) return band;
           const byDistance =
@@ -128,8 +172,8 @@ export async function GET(request: NextRequest) {
           // two places the same distance away.
           return byDistance !== 0 ? byDistance : a.index - b.index;
         })
-        .map((entry) => entry.row)
-    : rows;
+      : tiered
+  ).map((entry) => entry.row);
 
   const places: PlaceSuggestion[] = ordered.slice(0, LIMIT).map((row) => ({
     geoid: row.geoid,
