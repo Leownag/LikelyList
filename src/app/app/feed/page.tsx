@@ -14,7 +14,7 @@ export async function generateMetadata() {
 }
 
 /**
- * This week's shows for this reader — the Friday email, on screen, now.
+ * This week's shows for this reader — the Wednesday email, on screen, now.
  *
  * Reuses buildDigest rather than reimplementing the scoring, so the page and the email
  * can never disagree about what belongs in someone's week. `skipEnrichment` is set
@@ -22,7 +22,7 @@ export async function generateMetadata() {
  * performer links are search URLs computed at render time, and spending a metered
  * lookup (100/day for the whole project) on a page refresh would starve the send.
  *
- * Reads from `events_cache`, which the Friday planner fills — so between a purge and
+ * Reads from `events_cache`, which the weekly planner fills — so between a purge and
  * the next run this can legitimately be empty. That is explained rather than hidden,
  * because "no shows" and "nothing cached yet" are different facts and only one of them
  * is about the reader's filters.

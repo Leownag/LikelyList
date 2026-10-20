@@ -711,7 +711,7 @@ function UnfilteredNotice({ digest }: { digest: Digest }) {
         >
           Pick your genres
         </Link>{" "}
-        and next Friday&apos;s email gets much shorter.
+        and next Wednesday&apos;s email gets much shorter.
       </Text>
     </Section>
   );

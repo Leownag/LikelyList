@@ -21,7 +21,7 @@ import type { ExploreEvent } from "@/lib/explore/types";
  * Public event search for /explore. No sign-in, no email.
  *
  * This is the only unauthenticated endpoint that spends Ticketmaster quota, which
- * is 5000 requests a day for the whole project and is also what the Friday send
+ * is 5000 requests a day for the whole project and is also what the weekly send
  * depends on. So it is capped twice: a global daily budget that leaves plenty of
  * headroom for the digest, and a per-visitor hourly cap.
  *
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Search has hit today's limit — the remaining Ticketmaster quota is reserved for the Friday emails. Try again tomorrow.",
+          "Search has hit today's limit — the remaining Ticketmaster quota is reserved for the weekly emails. Try again tomorrow.",
       },
       { status: 429 },
     );

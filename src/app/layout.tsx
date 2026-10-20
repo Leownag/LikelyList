@@ -26,7 +26,7 @@ const silkscreen = Silkscreen({
 });
 
 const DESCRIPTION =
-  "A weekly Friday email of upcoming shows near you, picked from the cities and genres you follow and the flyers you feed it.";
+  "A weekly Wednesday email of upcoming shows near you, picked from the cities and genres you follow and the flyers you feed it.";
 
 export const metadata: Metadata = {
   // Required for the `alternates` and `openGraph` URLs below to resolve absolute.

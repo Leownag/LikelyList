@@ -110,7 +110,7 @@ export default async function DigestPreviewPage({
             >
               Pick your genres
             </a>{" "}
-            and next Friday&apos;s email gets much shorter.
+            and next Wednesday&apos;s email gets much shorter.
           </p>
         </div>
       ) : null}
@@ -280,7 +280,7 @@ export default async function DigestPreviewPage({
       <footer className="mt-12 border-t border-border pt-6 text-xs leading-relaxed text-faint">
         <p>
           Rebuilt live on {today} from the same data as your email, so it can
-          differ slightly if listings changed since Friday.
+          differ slightly if listings changed since the run.
         </p>
         <p className="mt-2">
           Event listings, artist pages and images via Ticketmaster. Video links

@@ -27,7 +27,7 @@ export type SubscribeGenre = { id: number; name: string };
  * A search that has already happened, to subscribe to as-is.
  *
  * Set by /explore, where the reader has just picked a place and genres and pressed
- * "Email me this every Friday". With this present the box asks for the address and
+ * "Email me this every Wednesday". With this present the box asks for the address and
  * nothing else: re-offering a city dropdown there was not a second chance to choose, it
  * was a different question — the dropdown holds 43 curated metros and the search above
  * can be any of 32,329 towns or a ZIP, so it silently answered "Amherst" with "Boston".

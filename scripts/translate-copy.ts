@@ -51,7 +51,7 @@ const MODEL = process.env.OPENAI_TRANSLATE_MODEL ?? process.env.OPENAI_VISION_MO
 const SYSTEM = `You translate UI copy for likelylist, from English into Traditional Chinese as written in Taiwan.
 
 WHAT THE PRODUCT IS
-likelylist is a weekly email about live music. Every Friday morning a subscriber gets one
+likelylist is a weekly email about live music. Every Wednesday morning a subscriber gets one
 email: which shows go on sale this week, and who is playing near them in the next seven
 days. It is filtered by the cities and genres they follow, the artists they name, and
 their Spotify listening. Listings come from Ticketmaster, United States only. There is no
@@ -77,14 +77,14 @@ never oversells, and explains its own limitations openly. Match that. Specifical
   this catalogue. Do not turn it into a comma.
 
 TERMS — use these consistently
-- digest → 摘要 (the weekly email itself). "the Friday email" → 週五的信
+- digest → 摘要 (the weekly email itself). "the Wednesday email" → 週三的信
 - genre → 類型 (never 流派)
 - city / cities → 城市；a town from the wider list → 城鎮
 - follow → 追蹤；unfollow / stop following → 取消追蹤
 - pinned → 已收藏；pin (verb) → 收藏
 - "feed" is TWO different things in this product and they must not be conflated:
     * "My feed" / "the feed" / "your feed" = the page showing this week's shows on screen,
-      the Friday email rendered live → 我的清單 / 清單. Never 截圖.
+      the Wednesday email rendered live → 我的清單 / 清單. Never 截圖.
     * "a feed" / "Feeds" as a section / "feed it your music" = a screenshot the reader
       uploads for its artist names → 截圖；the section heading → 截圖來源
   If a string could be either, it is the shows one unless it mentions uploading, reading,

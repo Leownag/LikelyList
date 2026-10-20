@@ -35,7 +35,7 @@ export const dynamic = "force-dynamic";
 
 /** The step art, in the order the copy keys are listed below. */
 const STEP_ART = [<StepCities key="a" />, <StepFeed key="b" />, <StepEmail key="c" />];
-const STEP_KEYS = ["email", "artists", "friday"] as const;
+const STEP_KEYS = ["email", "artists", "midweek"] as const;
 
 const CAVEAT_KEYS = [
   "landing.honest.lineup",

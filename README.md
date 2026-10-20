@@ -1,6 +1,6 @@
 # likelylist
 
-**[likelylist.tech](https://likelylist.tech)** — a weekly Friday email of upcoming
+**[likelylist.tech](https://likelylist.tech)** — a weekly Wednesday email of upcoming
 concerts, filtered by the cities and genres you follow and by the show flyers you
 paste in.
 
@@ -10,7 +10,7 @@ paste in.
   feed it.
 - **Feeds** are read by an OpenAI vision model under a strict JSON schema, and
   every extraction is shown to you for confirmation before it changes anything.
-- **On-sale dates** get their own section, above the week's listings. A Friday
+- **On-sale dates** get their own section, above the week's listings. A midweek
   email about the next seven days is already too late for anything in demand —
   those tickets went weeks ago — so the part you can still act on comes first.
 - **Delivery** is one email per subscriber per week, released when that
@@ -37,7 +37,7 @@ compiles the Next.js app into `.open-next/worker.js`, which exports only `fetch`
 | Trigger | Handler | Reaches |
 | --- | --- | --- |
 | HTTP request | `fetch` | any route in `src/app/` |
-| Cron (`0 8 * * 5`, `*/5 * * * *`) | `scheduled` | `/api/cron/digest` |
+| Cron (`0 19 * * 2`, `*/5 * * * *`) | `scheduled` | `/api/cron/digest` |
 | Inbound email (Email Routing) | `email` | `/api/inbound/unsubscribe` |
 
 The two extra handlers deliberately import no application code. They construct a
@@ -390,7 +390,7 @@ them one at a time, in order:
     deny-all the caches use.
 14. `0014_subscribe_by_point.sql` — subscriptions become coordinates and
     `events_cache` is re-keyed by grid cell. **Truncates `events_cache`**, which is
-    safe: it is a 36-hour scratch buffer the Friday run refills.
+    safe: it is a 36-hour scratch buffer the weekly run refills.
 
 Run them one at a time, so a failure names the file that failed. They are one-shot
 scripts — `create table` / `create policy` without `if not exists` — so re-running one
@@ -530,7 +530,7 @@ with `openssl rand -hex 32`.
 ## How the weekly send works
 
 ```
-Friday cron  "0 8 * * 5"                 Drain cron  "*/5 * * * *"
+Weekly cron  "0 19 * * 2"                Drain cron  "*/5 * * * *"
       │                                        │
       ├─ create digest_runs row                ├─ requeue jobs whose lease expired
       ├─ refresh genre taxonomy if stale       ├─ claim a small batch whose
@@ -569,7 +569,7 @@ cannot happen twice.
 
 Consequences of using the date form: it has no upper bound, so the window's far
 edge is applied in `buildDigest` rather than by the API; the event-date window
-stays wide (a year) purely to bound the request, since a ticket drop this Friday is
+stays wide (a year) purely to bound the request, since a ticket drop this week is
 usually for a show months out; and the result set is genuinely small — most listed
 events are already on sale, so **expect zero to a handful of rows**, which is why
 the section is capped at four and sheds first under the size budget.
@@ -581,7 +581,7 @@ the duplicate. Ticketmaster also returns `1900-01-01` as an "on sale since forev
 sentinel on roughly 8% of events, which is normalised to `NULL` so the column does
 not lie about what it holds.
 
-**The Friday cron only queues; the drainer sends.** Cloudflare caps a cron
+**The weekly cron only queues; the drainer sends.** Cloudflare caps a cron
 invocation at 15 minutes of wall clock, so a single pass over every subscriber was
 never safe to depend on. Running the drainer every five minutes makes the pipeline
 self-healing — an invocation that dies leaves the rest queued — and it is also
@@ -590,8 +590,19 @@ multiple timezones and daylight saving without touching the always-UTC cron
 expression.
 
 **Cron firing time drifts within the hour.** Cloudflare spreads scheduled work
-across the hour it is triggered in. "Friday morning" is reliable; a precise minute
-is not.
+across the hour it is triggered in. "Wednesday morning" is reliable; a precise
+minute is not.
+
+**The builder runs Tuesday, the sends land Wednesday.** Everyone is emailed on
+their own local Wednesday morning, and the supported zones bound that span:
+Tokyo (UTC+9) at 06:00 is Tuesday 21:00 UTC, Honolulu (UTC-10) at 11:00 is
+Wednesday 21:00 UTC. Building at Tuesday 19:00 UTC sits two hours before the
+earliest send — margin for the hour Cloudflare spreads a trigger across — and
+the latest send is still 26 hours later, inside the 36-hour `events_cache` TTL
+every job reads from. The weekday itself lives in `DIGEST_WEEKDAY`, not in the
+cron expression: a run instant falls on different calendar days in different
+zones, so reading the day off the clock is how a "Friday" email used to arrive
+on a Thursday west of UTC-9.
 
 Both passes can be driven by hand:
 
@@ -599,10 +610,16 @@ Both passes can be driven by hand:
 curl -X POST "http://localhost:3000/api/cron/digest?mode=weekly" -H "x-cron-secret: $CRON_SECRET"
 ```
 
+A weekly run driven by hand is still keyed and queued for the *next* Wednesday,
+not for the day you ran it — so on a Monday it queues sends four days out, and
+the cache it just filled will have expired by then. Harmless in practice: the
+Tuesday cron resumes the same run (same `run_date`) and refills the cache before
+anything is sent. To see an email now, use the preview route instead.
+
 Under `npm run preview`, the real scheduled handler can be fired with:
 
 ```bash
-curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+8+*+*+5"
+curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+19+*+*+2"
 ```
 
 ---
