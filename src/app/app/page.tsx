@@ -8,6 +8,9 @@ import { DigestPreview } from "./digest-preview";
 import { getI18n, getT } from "@/lib/i18n/server";
 import { SLOT, interleave } from "@/lib/i18n/interleave";
 import { placeLabel } from "@/lib/places";
+import { cookies } from "next/headers";
+import { DEV_MODE_COOKIE, isDevMode } from "@/lib/dev-mode";
+import { readEnv } from "@/lib/env";
 
 export async function generateMetadata() {
   return { title: (await getT())("title.overview") };
@@ -126,6 +129,14 @@ export default async function OverviewPage() {
   const nextSendLabel = nextDigestLabel(profile, locale);
 
   const ready = subscriptions.length > 0 && genrePrefs.length > 0;
+
+  // The build panel reports byte sizes against Gmail's clip limit and whether
+  // the mail was actually delivered. That is written for whoever runs this, and
+  // it was being shown to everyone.
+  const diagnostics = await isDevMode({
+    cookieValue: (await cookies()).get(DEV_MODE_COOKIE)?.value,
+    secret: readEnv().cronSecret,
+  });
 
   return (
     <div className="space-y-10">
@@ -296,7 +307,7 @@ export default async function OverviewPage() {
           {t("overview.try.heading")}
         </SectionHeading>
         <Card className="p-5">
-          <DigestPreview />
+          <DigestPreview diagnostics={diagnostics} />
         </Card>
       </section>
 

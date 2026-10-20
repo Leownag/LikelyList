@@ -18,9 +18,12 @@ import { SLOT, interleave } from "@/lib/i18n/interleave";
 export function DigestOnTheWay({
   nextSendLabel,
   paused,
+  diagnostics = false,
 }: {
   nextSendLabel: string;
   paused: boolean;
+  /** Operator-facing byte sizes; off unless dev mode is on for this browser. */
+  diagnostics?: boolean;
 }) {
   const t = useT();
   const { busy, summary, cooldownSeconds, run } = useDigestBuild();
@@ -65,7 +68,7 @@ export function DigestOnTheWay({
         ) : null}
       </div>
 
-      {summary ? <DigestSummaryPanel summary={summary} /> : null}
+      {summary && diagnostics ? <DigestSummaryPanel summary={summary} /> : null}
     </div>
   );
 }

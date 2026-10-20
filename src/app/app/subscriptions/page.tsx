@@ -211,11 +211,9 @@ export default async function SubscriptionsPage({
 
       {genres.length === 0 ? (
         <Notice tone="warn">
-          No genres are loaded yet. Run{" "}
-          <code className="font-mono text-text">npm run seed:genres</code> — the
-          genre IDs are read from Ticketmaster&apos;s live API rather than
-          hardcoded, because Ticketmaster publishes no genre ID table and
-          third-party lists disagree with each other.
+          Genres are not available right now, so the digest will not be filtered
+          by them. Everything else below still works. (Operators: this means the
+          genre taxonomy has not been loaded — see the README.)
         </Notice>
       ) : null}
 
