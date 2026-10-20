@@ -28,6 +28,10 @@
 # Personal tooling, not part of the project. Kept on disk, out of the repo.
 .claude/
 CLAUDE.md
+# .cursorindexingignore only governs Cursor's indexer; it says nothing to git.
+# Without these two lines a `git add .` commits the full assistant transcripts.
+.cursorindexingignore
+.specstory/
 
 # debug
 npm-debug.log*
