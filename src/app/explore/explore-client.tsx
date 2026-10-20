@@ -12,7 +12,7 @@ import {
   type SubscribeCity,
   type SubscribeGenre,
 } from "@/components/anonymous-subscribe";
-import { useDetectedCitySlug } from "@/lib/use-detected-region";
+import { useDetectedCitySlug, useDetectedPoint } from "@/lib/use-detected-region";
 import {
   RADIUS_CHOICES,
   type ExploreResponse,
@@ -64,12 +64,18 @@ export function ExploreClient({
   // the 43 the digest curates. The detected city seeds it because those rows carry
   // coordinates too.
   const detectedCitySlug = useDetectedCitySlug();
+  // Null until the browser has actually been asked, which is the honest state
+  // during the server render. The slug hook answers DEFAULT_CITY_SLUG there, so
+  // the box used to paint "New York, NY" and then swap to the real guess a
+  // frame later — a city the reader never chose, shown as if it had been.
+  const detectionResolved = useDetectedPoint() !== null;
   const [chosenPlace, setChosenPlace] = useState<PlaceSuggestion | null>(null);
   /** Typed into the city box but never committed to a suggestion. */
   const [pendingCity, setPendingCity] = useState("");
 
-  const detectedCity =
-    cities.find((city) => city.slug === detectedCitySlug) ?? cities[0] ?? null;
+  const detectedCity = detectionResolved
+    ? (cities.find((city) => city.slug === detectedCitySlug) ?? cities[0] ?? null)
+    : null;
   const detectedPoint: PlacePoint | null =
     detectedCity?.latitude != null && detectedCity?.longitude != null
       ? {
