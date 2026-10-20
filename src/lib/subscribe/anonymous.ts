@@ -8,6 +8,7 @@ import { TIMEZONES } from "@/lib/time";
 import { geoCellKey } from "@/lib/geo-cell";
 import { geocodePostalCode } from "@/lib/geocode";
 import type { City, Genre } from "@/lib/db";
+import { placeLabel } from "@/lib/places";
 
 /**
  * Subscribing without an account, safely.
@@ -183,7 +184,7 @@ export async function requestSubscription(
 
   const message = await renderConfirmEmail({
     confirmUrl,
-    cityName: [place.name, place.stateCode].filter(Boolean).join(", "),
+    cityName: placeLabel(place.name, place.stateCode),
     genreNames: genres.map((genre) => genre.name),
     siteUrl: env.siteUrl,
   });

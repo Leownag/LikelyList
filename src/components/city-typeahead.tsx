@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Input } from "@/components/ui";
 import type { PlacePoint, PlaceSuggestion } from "@/lib/explore/types";
+import { placeLabel } from "@/lib/places";
 
 /**
  * Type a city, pick from what matches — over every US place, not a shortlist.
@@ -50,7 +51,7 @@ export function CityTypeahead({
   const requestId = useRef(0);
 
   const label = (place: PlacePoint) =>
-    place.stateCode ? `${place.name}, ${place.stateCode}` : place.name;
+    placeLabel(place.name, place.stateCode);
 
   const query = draft ?? "";
 

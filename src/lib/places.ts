@@ -50,6 +50,33 @@ const LSAD_RANK: Record<string, number> = {
   "57": 6, // CDP
 };
 
+/**
+ * How a place is written for a reader: "Cambridge, MA".
+ *
+ * One function because it was previously open-coded in eight places, and the
+ * seeded `cities` row for Washington carried its state inside `name` *and* in
+ * `state_code`. Two of those call sites joined with ", " and produced
+ * "Washington, DC, DC"; the chip grid rendered name and state as adjacent
+ * elements with no separator and produced "Washington, DC DC". One bad row, two
+ * different wrong answers, because nothing owned the question.
+ *
+ * The seed is fixed too, but the guard stays: rows written before that fix are
+ * still in the database, and `subscriptions.place_name` copies the name at
+ * subscribe time rather than joining to it.
+ */
+export function placeLabel(
+  name: string | null | undefined,
+  stateCode: string | null | undefined,
+): string {
+  const place = (name ?? "").trim();
+  const state = (stateCode ?? "").trim();
+  if (!place) return state;
+  if (!state) return place;
+  // Case-insensitive because the column is free text, not an enum.
+  if (place.toUpperCase().endsWith(`, ${state.toUpperCase()}`)) return place;
+  return `${place}, ${state}`;
+}
+
 /** Lowercased "name, st". The seeded column a prefix search runs against. */
 export function placeSearchKey(name: string, stateCode: string): string {
   return `${name}, ${stateCode}`.toLowerCase();

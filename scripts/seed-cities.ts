@@ -27,7 +27,7 @@ const CITIES: SeedCity[] = [
   { slug: "new-york", name: "New York", tm_city: "New York", state_code: "NY" },
   { slug: "brooklyn", name: "Brooklyn", tm_city: "Brooklyn", state_code: "NY" },
   { slug: "philadelphia", name: "Philadelphia", tm_city: "Philadelphia", state_code: "PA" },
-  { slug: "washington", name: "Washington, DC", tm_city: "Washington", state_code: "DC" },
+  { slug: "washington", name: "Washington", tm_city: "Washington", state_code: "DC" },
   { slug: "baltimore", name: "Baltimore", tm_city: "Baltimore", state_code: "MD" },
   { slug: "pittsburgh", name: "Pittsburgh", tm_city: "Pittsburgh", state_code: "PA" },
   { slug: "buffalo", name: "Buffalo", tm_city: "Buffalo", state_code: "NY" },

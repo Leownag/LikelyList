@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cleanPlaceName, placeRank, placeSearchKey } from "./places";
+import { cleanPlaceName, placeLabel, placeRank, placeSearchKey } from "./places";
 
 test("Census type suffixes are stripped from place names", () => {
   // The Gazetteer spells these out; a search box does not want them.
@@ -85,4 +85,22 @@ test("a missing or absurd area does not produce a broken rank", () => {
       `area ${area} produced rank ${rank}`,
     );
   }
+});
+
+test("a name that already carries its state does not get a second one", () => {
+  // The seeded Washington row was `name: "Washington, DC"` with `state_code: "DC"`,
+  // which two different renderers turned into two different wrong answers. The seed
+  // is fixed, but rows written before that are still in the database.
+  assert.equal(placeLabel("Washington, DC", "DC"), "Washington, DC");
+  assert.equal(placeLabel("washington, dc", "DC"), "washington, dc");
+  assert.equal(placeLabel("Washington", "DC"), "Washington, DC");
+});
+
+test("placeLabel copes with the halves it can be handed", () => {
+  assert.equal(placeLabel("Cambridge", "MA"), "Cambridge, MA");
+  assert.equal(placeLabel("Cambridge", null), "Cambridge");
+  assert.equal(placeLabel(null, "MA"), "MA");
+  assert.equal(placeLabel(null, null), "");
+  // "Camden" must not be swallowed by a state code it merely ends with.
+  assert.equal(placeLabel("Camden", "DEN"), "Camden, DEN");
 });

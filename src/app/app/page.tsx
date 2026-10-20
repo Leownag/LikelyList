@@ -7,6 +7,7 @@ import type { ArtistPref, City, Genre, GenrePref, Subscription } from "@/lib/db"
 import { DigestPreview } from "./digest-preview";
 import { getI18n, getT } from "@/lib/i18n/server";
 import { SLOT, interleave } from "@/lib/i18n/interleave";
+import { placeLabel } from "@/lib/places";
 
 export async function generateMetadata() {
   return { title: (await getT())("title.overview") };
@@ -76,19 +77,27 @@ export default async function OverviewPage() {
   const subscriptions = ((subsResult.data ?? []) as Pick<
     Subscription,
     "id" | "city_id" | "place_name" | "state_code"
-  >[]).map((subscription) => ({
-    ...subscription,
+  >[]).map((subscription) => {
     // Since 0014 a subscription is a point with a label, and only the ones that came
     // from the curated picker still carry a city id. The label is what to show.
-    city:
+    const city =
       (subscription.city_id !== null
         ? cityById.get(subscription.city_id)
-        : null) ?? null,
-    label:
-      [subscription.place_name, subscription.state_code]
-        .filter(Boolean)
-        .join(", ") || null,
-  }));
+        : null) ?? null;
+    const name = subscription.place_name ?? city?.name ?? null;
+    const state = subscription.state_code ?? city?.state_code ?? null;
+
+    return {
+      ...subscription,
+      city,
+      name,
+      // Rendered as its own dimmed element, so it is dropped when the name already
+      // carries it — place_name copies the city's name at subscribe time, and rows
+      // written before the Washington seed was fixed still read "Washington, DC".
+      state: placeLabel(name, state) === name ? null : state,
+      label: placeLabel(subscription.place_name, subscription.state_code) || null,
+    };
+  });
 
   const genrePrefs = ((prefsResult.data ?? []) as Pick<
     GenrePref,
@@ -189,14 +198,10 @@ export default async function OverviewPage() {
                   {/* The stored label first: a subscription to a Census place has no
                       curated city row to read a name from. */}
                   <span>
-                    {subscription.place_name ??
-                      subscription.city?.name ??
-                      t("overview.cities.unnamed")}
+                    {subscription.name ?? t("overview.cities.unnamed")}
                   </span>
-                  {subscription.state_code ?? subscription.city?.state_code ? (
-                    <span className="text-faint">
-                      {subscription.state_code ?? subscription.city?.state_code}
-                    </span>
+                  {subscription.state ? (
+                    <span className="text-faint">{subscription.state}</span>
                   ) : null}
                 </li>
               ))}

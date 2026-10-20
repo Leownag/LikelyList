@@ -9,6 +9,7 @@ import type { ToggleItem } from "./toggle-grid";
 import { ArtistSearch } from "./artist-search";
 import { SpotifyCard } from "./spotify-card";
 import { loadSpotifyState } from "@/lib/spotify/state";
+import { placeLabel } from "@/lib/places";
 
 export const metadata = { title: "What I follow" };
 
@@ -88,7 +89,10 @@ export default async function SubscriptionsPage({
   const cityItems: ToggleItem[] = cities.map((city) => ({
     id: city.id,
     label: city.name,
-    sublabel: city.state_code,
+    // The chip renders label and sublabel as adjacent elements, so a name that
+    // already carries its state produced "Washington, DC DC". placeLabel is the
+    // authority on whether the state is already in there.
+    sublabel: placeLabel(city.name, city.state_code) === city.name ? null : city.state_code,
   }));
 
   const genreItems: ToggleItem[] = genres.map((genre) => ({
