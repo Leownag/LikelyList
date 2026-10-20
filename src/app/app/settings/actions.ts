@@ -7,6 +7,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { readEnv } from "@/lib/env";
 import { DIGEST_SEND_HOURS, TIMEZONES } from "@/lib/time";
 
+/**
+ * What `profiles.timezone` holds when nobody has chosen one.
+ *
+ * Mirrors the column default in migration 0001. Kept as a named constant so the
+ * "has this ever been set" test is legible rather than a bare string compare.
+ */
+const UNCHOSEN_TIMEZONE = "America/New_York";
+
 /** What the form shows after a submit. */
 export type ScheduleState = { ok: true } | { ok: false; message: string };
 
@@ -18,6 +26,34 @@ export type ScheduleState = { ok: true } | { ok: false; message: string };
  * ordinary as a hour that is not on the list. The caller renders these in a
  * status line beside the save button instead.
  */
+/**
+ * Adopts the browser's timezone for a profile that has never had one chosen.
+ *
+ * Called once, from the client, right after requireProfile creates a row — the
+ * only moment at which the stored value is a column default rather than
+ * somebody's decision.
+ *
+ * Guarded server-side as well as client-side: it writes only while the stored
+ * value is still that default, so a repeat or a crafted call cannot move a
+ * timezone the reader has actually set.
+ */
+export async function adoptDetectedTimezone(zone: string): Promise<void> {
+  if (!TIMEZONES.includes(zone as (typeof TIMEZONES)[number])) return;
+  if (zone === UNCHOSEN_TIMEZONE) return;
+
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  await supabase
+    .from("profiles")
+    .update({ timezone: zone })
+    .eq("id", user.id)
+    .eq("timezone", UNCHOSEN_TIMEZONE);
+
+  revalidatePath("/app/settings");
+  revalidatePath("/app");
+}
+
 export async function updateSchedule(
   _state: ScheduleState | null,
   formData: FormData,
