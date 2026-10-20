@@ -40,11 +40,20 @@ type Status = "idle" | "searching" | "empty" | "error";
 export function CityTypeahead({
   value,
   onChange,
+  onDraftChange,
   id,
 }: {
   /** Accepts a curated city too, which has coordinates but no Census id. */
   value: PlacePoint | null;
   onChange: (place: PlaceSuggestion) => void;
+  /**
+   * Text typed but not committed to a selection, or "" once there is none.
+   *
+   * Exists so a caller can refuse to act on a half-finished thought. /explore
+   * used to fall back to a timezone guess, which meant typing "Amherst" and
+   * pressing the search button returned a week of New York shows.
+   */
+  onDraftChange?: (text: string) => void;
   id?: string;
 }) {
   const generatedId = useId();
@@ -115,6 +124,7 @@ export function CityTypeahead({
   // lint error and a wasted render.
   function changeQuery(next: string) {
     setDraft(next);
+    onDraftChange?.(next);
     setOpen(true);
     setActive(0);
     if (next.trim().length < MIN_QUERY) {
@@ -130,6 +140,7 @@ export function CityTypeahead({
     requestId.current += 1;
     onChange(place);
     setDraft(null);
+    onDraftChange?.("");
     setMatches([]);
     setStatus("idle");
     setOpen(false);
@@ -163,6 +174,7 @@ export function CityTypeahead({
     if (event.key === "Escape") {
       setOpen(false);
       setDraft(null);
+      onDraftChange?.("");
     }
   }
 

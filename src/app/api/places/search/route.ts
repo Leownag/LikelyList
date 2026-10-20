@@ -4,6 +4,7 @@ import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { PlaceSuggestion } from "@/lib/explore/types";
 import { distanceMiles, placeBand } from "@/lib/places";
+import { visitorHash } from "@/lib/visitor";
 
 /**
  * City suggestions for the search box.
@@ -17,6 +18,14 @@ import { distanceMiles, placeBand } from "@/lib/places";
  * Costs nothing external. This is our own Postgres, not Ticketmaster, so unlike
  * /api/explore it does not need a quota budget — only enough of a bound that a
  * scripted caller cannot use it to enumerate the table or hold connections open.
+ * That bound is the per-visitor hourly cap below, set far above what typing can
+ * reach: the box fires every 180ms, so a solid minute of typing is some fifty
+ * queries.
+ *
+ * Answers are cached at the edge for a day. The place list changes once a year
+ * when the Census publishes a new Gazetteer, and `near` only ever takes one of
+ * ten values, so the (q, near) space a real audience visits is small and this
+ * removes most of the traffic rather than metering it.
  */
 
 /** Enough to disambiguate, few enough to scan without scrolling. */
@@ -43,6 +52,12 @@ const CANDIDATES = 200;
  * thousand place names — and the prefix tier already answers it well.
  */
 const MIN_CONTAINS = 4;
+
+/** Generous: typing cannot reach it, a script can. */
+const HOURLY_PER_VISITOR = 600;
+
+/** The place list changes once a year. */
+const CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=86400";
 
 type PlaceRow = {
   geoid: string;
@@ -88,6 +103,22 @@ export async function GET(request: NextRequest) {
 
   const needle = parsed.data.q.toLowerCase();
   const supabase = createAdminClient(env);
+
+  // Unmetered before this: a public endpoint running a LIKE against a
+  // 32,329-row table on every keystroke of every visitor.
+  const day = new Date().toISOString().slice(0, 10);
+  const visitorKey = await visitorHash(request, env.unsubscribeHmacSecret);
+  const { data: usedThisHour } = await supabase.rpc("bump_global_usage", {
+    p_kind: `places_ip:${visitorKey}:${day}T${new Date().getUTCHours()}`,
+    p_day: day,
+    p_amount: 1,
+  });
+  if (typeof usedThisHour === "number" && usedThisHour > HOURLY_PER_VISITOR) {
+    // Shaped like every other answer here. A dropdown that says "rate limited"
+    // is a worse experience than one that says nothing matched, and a caller
+    // who hit this is not reading the message anyway.
+    return NextResponse.json({ places: [] }, { status: 429 });
+  }
 
   // Escaped so a literal % cannot turn one lookup into a full scan.
   const escaped = needle.replace(/[%_\\]/g, "\\$&");
@@ -183,5 +214,10 @@ export async function GET(request: NextRequest) {
     longitude: Number(row.longitude),
   }));
 
-  return NextResponse.json({ places });
+  return NextResponse.json(
+    { places },
+    // Only on the success path: a 429 or an empty degraded answer must not be
+    // the thing a cache keeps for a day.
+    { headers: { "Cache-Control": CACHE_CONTROL } },
+  );
 }

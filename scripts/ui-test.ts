@@ -169,6 +169,33 @@ async function main() {
       await shot(page, "explore");
     });
 
+    await check("a half-typed place is refused, not guessed", async () => {
+      // The bug this pins: `chosenPlace ?? detectedPoint` meant typing a place
+      // and clicking the button searched whatever the timezone guessed, and the
+      // only hint was a line folded inside a collapsed "Advanced" panel.
+      const city = page.locator("#explore-city");
+      await city.click();
+      await city.fill("Amher");
+      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: /Show me this week/i }).click();
+      await page.waitForTimeout(600);
+
+      const body = await page.locator("main").innerText();
+      assert(/can't tell which/i.test(body), "a half-typed place was accepted");
+      assert(!/of New York/i.test(body), "it fell back to the detected city anyway");
+
+      // And choosing from the list clears it again.
+      await city.click();
+      await city.fill("Amherst");
+      await page.locator('[role="option"]').first().waitFor({ timeout: 15_000 });
+      await page.locator('[role="option"]').first().click();
+      assert(
+        !/can't tell which/i.test(await page.locator("main").innerText()),
+        "choosing a suggestion did not clear the refusal",
+      );
+      return await city.inputValue();
+    });
+
     await check("the city box can be driven from the keyboard", async () => {
       // The regression this pins: Enter used to take matches[0] unconditionally
       // and there were no arrow keys at all, so the only way to reach the third

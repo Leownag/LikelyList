@@ -65,6 +65,8 @@ export function ExploreClient({
   // coordinates too.
   const detectedCitySlug = useDetectedCitySlug();
   const [chosenPlace, setChosenPlace] = useState<PlaceSuggestion | null>(null);
+  /** Typed into the city box but never committed to a suggestion. */
+  const [pendingCity, setPendingCity] = useState("");
 
   const detectedCity =
     cities.find((city) => city.slug === detectedCitySlug) ?? cities[0] ?? null;
@@ -78,10 +80,26 @@ export function ExploreClient({
         }
       : null;
 
+  // The timezone guess is a starting point, not an answer: it stands in only
+  // while the reader has expressed no opinion at all. The moment they start
+  // typing, `search` refuses rather than quietly falling back to it.
   const place: PlacePoint | null = chosenPlace ?? detectedPoint;
 
   async function search(overrideRadius?: number) {
     const radius = overrideRadius ?? radiusMiles;
+
+    // The bug this replaces: typing "Amherst" and clicking the button searched
+    // whatever the timezone guessed, usually New York, and the only hint was a
+    // line folded inside a collapsed "Advanced" panel. Half-typed is not a
+    // place, and guessing one is worse than asking.
+    if (mode === "city" && pendingCity.trim().length > 0) {
+      setError(
+        `Pick a place from the list — we can't tell which “${pendingCity.trim()}” you mean.`,
+      );
+      setResult(null);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setShowSubscribe(false);
@@ -152,8 +170,17 @@ export function ExploreClient({
               <CityTypeahead
                 id="explore-city"
                 value={place}
-                onChange={setChosenPlace}
+                onChange={(next) => {
+                  setChosenPlace(next);
+                  setError(null);
+                }}
+                onDraftChange={setPendingCity}
               />
+              {!chosenPlace && detectedPoint ? (
+                <p className="mt-1 text-xs text-faint">
+                  Detected from your timezone — change it if it&apos;s wrong.
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="min-w-48 flex-1">
