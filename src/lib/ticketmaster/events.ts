@@ -19,7 +19,12 @@ import type { CachedAttraction, CachedEvent } from "@/lib/db";
  * no benefit.
  */
 
-const PAGE_SIZE = 100;
+/**
+ * Exported so a caller that asks for one page can tell a full page from a
+ * complete answer. A full page means the window was cut short, not that the
+ * window is empty after that date.
+ */
+export const PAGE_SIZE = 100;
 
 export type EventSearchParams = {
   /** Exactly the string Ticketmaster's `city` parameter expects. */
