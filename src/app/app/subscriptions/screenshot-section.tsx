@@ -161,9 +161,17 @@ function describe(feed: {
   if (feed.status !== "done") return "Processing";
   if (feed.not_music_related) return "Not music — nothing learned";
 
-  const count = feed.extracted?.artists?.length ?? 0;
-  if (feed.applied_at) {
-    return `Applied · ${count} artist${count === 1 ? "" : "s"}`;
-  }
-  return `Read · ${count} artist${count === 1 ? "" : "s"}`;
+  // Counts both, because applying a screenshot can change either. Reporting
+  // only artists meant a feed that contributed a genre and no names read as
+  // "Applied · 0 artists" — true about artists, and an understatement of what
+  // it actually did, while the genre grid credited that same feed.
+  const artists = feed.extracted?.artists?.length ?? 0;
+  const genres = feed.extracted?.genres?.length ?? 0;
+
+  const parts: string[] = [];
+  if (artists > 0) parts.push(`${artists} artist${artists === 1 ? "" : "s"}`);
+  if (genres > 0) parts.push(`${genres} genre${genres === 1 ? "" : "s"}`);
+  const what = parts.join(" · ") || "nothing legible";
+
+  return feed.applied_at ? `Applied · ${what}` : `Read · ${what}`;
 }

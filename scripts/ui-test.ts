@@ -729,6 +729,99 @@ async function main() {
       );
     });
 
+    // ---- states that only exist with history ---------------------------------
+    //
+    // Everything above runs against an account created seconds ago, so the
+    // screens that only appear once there is a past — a show that has already
+    // happened, a screenshot that was applied — were never reached. Two of the
+    // defects found by hand were exactly there. The walk writes its own history
+    // rather than borrowing a real account.
+
+    await check("a past pin and a sparse one both render", async () => {
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+      const { error } = await admin.from("pinned_events").insert([
+        {
+          user_id: userId,
+          tm_event_id: `ui-test-past-${Date.now()}`,
+          name: "A Show That Already Happened",
+          url: "https://example.com/past",
+          local_date: yesterday,
+          local_time: "20:00:00",
+          timezone: "America/New_York",
+          venue_name: "The Old Hall",
+          city_label: "Boston, MA",
+          genre_name: "Rock",
+          performers: [{ name: "A Show That Already Happened", isHeadliner: true }],
+        },
+        {
+          // No venue, no city, no genre. Older rows look like this, and the UX
+          // pass found one sitting next to a complete card with no explanation.
+          user_id: userId,
+          tm_event_id: `ui-test-sparse-${Date.now()}`,
+          name: "A Pin With Nothing Attached",
+          url: null,
+          local_date: yesterday,
+          local_time: null,
+          timezone: null,
+          venue_name: null,
+          city_label: null,
+          genre_name: null,
+          performers: [],
+        },
+      ]);
+      assert(!error, `could not seed pins: ${error?.message}`);
+
+      await go(app, "/app/pinned");
+      const body = await app.locator("main").innerText();
+
+      // The contradiction this pins down: the empty state keyed on `upcoming`
+      // alone, so an account whose pins have all happened saw "nothing pinned
+      // yet" directly above a populated "Already happened" list.
+      assert(
+        !/nothing pinned yet/i.test(body),
+        "claims nothing is pinned while listing past pins",
+      );
+      assert(/already happened/i.test(body), "no past section for a past pin");
+      assert(/A Show That Already Happened/.test(body), "the past pin is missing");
+      assert(/A Pin With Nothing Attached/.test(body), "the sparse pin is missing");
+
+      // A card with no venue must omit the line, not render a bare separator.
+      assert(
+        !/^\s*·\s*$/m.test(body),
+        "a card rendered an empty venue line as a dangling separator",
+      );
+      await shot(app, "pinned-with-history");
+      return "past + sparse";
+    });
+
+    await check("an applied screenshot reports everything it changed", async () => {
+      // "Applied · 0 artists" was shown for a feed that had contributed a genre,
+      // and the genre grid credited that same feed on the same page.
+      const { error } = await admin.from("feeds").insert({
+        user_id: userId,
+        status: "done",
+        not_music_related: false,
+        applied_at: new Date().toISOString(),
+        extracted: {
+          source_kind: "music_app",
+          artists: [],
+          genres: ["Rock"],
+          songs: [],
+          raw_text: "ui-test fixture",
+        },
+      });
+      assert(!error, `could not seed a feed: ${error?.message}`);
+
+      await go(app, "/app/subscriptions#screenshots");
+      const body = await app.locator("main").innerText();
+      assert(
+        !/Applied · 0 artists/.test(body),
+        "a feed that contributed a genre still reports 0 artists",
+      );
+      assert(/Applied · 1 genre/.test(body), "the genre it contributed is not counted");
+      await shot(app, "feed-history");
+    });
+
     await check("my feed renders a list or explains the empty week", async () => {
       await go(app, "/app/feed");
       const text = await app.locator("main").innerText();

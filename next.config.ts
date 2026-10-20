@@ -1,6 +1,26 @@
+import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 
+const { version } = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
+
 const nextConfig: NextConfig = {
+  // Inlined at build time, which is the only way the running Worker can know
+  // which commit it was built from: Cloudflare's runtime env comes from wrangler
+  // vars, not from the shell that ran the build. /api/health reports it, and the
+  // smoke test compares it against local HEAD.
+  //
+  // The failure that earned this: a release was tagged and deployed from a
+  // branch that had never been merged, so `npm run deploy` reported success
+  // while shipping the previous build. Nothing noticed for an hour.
+  env: {
+    BUILD_SHA: process.env.BUILD_SHA ?? "unknown",
+    // Read here rather than from process.env at runtime: npm_package_version is
+    // a property of the shell npm ran the build in, and the Worker has no shell.
+    BUILD_VERSION: version,
+  },
+
   images: {
     // Every image in this app is a hotlinked third-party URL (Ticketmaster's
     // CDN, YouTube thumbnails). Optimising them through Next would mean
