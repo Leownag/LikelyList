@@ -15,7 +15,7 @@
  */
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { createClient } from "@supabase/supabase-js";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -447,6 +447,80 @@ async function main() {
       await app.waitForURL(`${BASE}/app`, { timeout: 30_000 });
       await app.getByText(EMAIL).first().waitFor();
       await shot(app, "app-overview");
+    });
+
+    await check("the shape each email template produces really signs in", async () => {
+      // Signing in through admin.generateLink bypasses the templates entirely,
+      // so nothing here ever exercised the link a reader actually clicks — and
+      // the shapes differ from the one the walk uses: magic-link.html emits
+      // `type=email`, confirm-signup.html emits `type=signup`, and the helper
+      // above mints `type=magiclink`.
+      //
+      // The type is read out of the template file rather than written here, so
+      // editing a template moves this check with it.
+      const dir = join(import.meta.dirname, "..", "supabase", "email-templates");
+      const templates = readdirSync(dir).filter((name) => name.endsWith(".html"));
+      assert(templates.length > 0, "no email templates to check");
+
+      const verified: string[] = [];
+
+      for (const name of templates) {
+        const html = readFileSync(join(dir, name), "utf8");
+        // The href in the button, not the explanatory comment at the top.
+        const match = html.match(/token_hash=\{\{ \.TokenHash \}\}&type=([a-z_]+)/);
+        assert(match, `${name} has no token_hash link for a reader to click`);
+        const type = match[1];
+
+        if (type === "signup") {
+          // A signup link can only be minted for an address that has not been
+          // registered, so this gets one of its own and cleans up after itself.
+          const email = `ui-test-signup-${Date.now()}@likelylist.test`;
+          const { data, error } = await admin.auth.admin.generateLink({
+            type: "signup",
+            email,
+            password: `pw-${Math.random().toString(36).slice(2)}A1!`,
+          });
+          if (error || !data.properties?.hashed_token) {
+            verified.push(`${name}: skipped (${error?.message ?? "no token"})`);
+            continue;
+          }
+          const fresh = await browser.newContext();
+          try {
+            const freshPage = await fresh.newPage();
+            await go(
+              freshPage,
+              `/auth/callback?token_hash=${data.properties.hashed_token}&type=signup`,
+            );
+            await freshPage.waitForURL(`${BASE}/app`, { timeout: 30_000 });
+          } finally {
+            await fresh.close();
+            if (data.user?.id) await admin.auth.admin.deleteUser(data.user.id).catch(() => {});
+          }
+          verified.push(`${name}: type=signup`);
+          continue;
+        }
+
+        // magiclink and email both verify a magic-link token.
+        const { data, error } = await admin.auth.admin.generateLink({
+          type: "magiclink",
+          email: EMAIL,
+        });
+        assert(!error && data.properties?.hashed_token, `could not mint a token for ${name}`);
+        const other = await browser.newContext();
+        try {
+          const otherPage = await other.newPage();
+          await go(
+            otherPage,
+            `/auth/callback?token_hash=${data.properties!.hashed_token}&type=${type}`,
+          );
+          await otherPage.waitForURL(`${BASE}/app`, { timeout: 30_000 });
+        } finally {
+          await other.close();
+        }
+        verified.push(`${name}: type=${type}`);
+      }
+
+      return verified.join(" · ");
     });
 
     await check("/login forwards a signed-in reader", async () => {
