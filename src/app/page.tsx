@@ -1,4 +1,4 @@
-import { ButtonLink } from "@/components/ui";
+import { ButtonLink, Notice } from "@/components/ui";
 import { PixelMosaic, PixelRule, PixelDot } from "@/components/pixel";
 import { Wordmark } from "@/components/wordmark";
 import { PublicHeader } from "@/components/public-header";
@@ -187,6 +187,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   ]);
   const t = translator(locale);
 
+  // Set by deleteAccount, which otherwise drops the reader here with no sign
+  // that anything happened.
+  const justDeleted = (await searchParams).deleted === "1";
+
   // Second round-trip, and only for the minority who are signed in: the schedule is the
   // whole point of what they get shown instead of the subscribe box, and it cannot be
   // asked for until getUser() has said who they are.
@@ -218,6 +222,12 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         }}
       />
       <PublicHeader current="home" signedIn={Boolean(user)} t={t} />
+
+      {justDeleted ? (
+        <div className="mt-8">
+          <Notice tone="success">{t("landing.deleted")}</Notice>
+        </div>
+      ) : null}
 
       <section className="mt-20 flex items-start justify-between gap-8">
         <div className="max-w-xl">
