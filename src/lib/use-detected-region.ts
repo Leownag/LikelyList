@@ -1,7 +1,12 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { DEFAULT_CITY_SLUG, guessCitySlug, guessTimezone } from "@/lib/region";
+import {
+  DEFAULT_CITY_SLUG,
+  guessCitySlug,
+  guessTimezone,
+  pointForCitySlug,
+} from "@/lib/region";
 import { TIMEZONES } from "@/lib/time";
 
 /**
@@ -38,6 +43,17 @@ function getTimezoneSnapshot(): string {
   return cachedTimezone;
 }
 
+let cachedPoint: { latitude: number; longitude: number } | null | undefined;
+function getPointSnapshot(): { latitude: number; longitude: number } | null {
+  if (cachedPoint === undefined) cachedPoint = pointForCitySlug(getCitySnapshot());
+  return cachedPoint;
+}
+
+/** Nothing to order by until the browser has told us anything. */
+function getServerPointSnapshot(): null {
+  return null;
+}
+
 /** The server has no idea where the visitor is; it renders the default. */
 function getServerCitySnapshot(): string {
   return DEFAULT_CITY_SLUG;
@@ -59,6 +75,20 @@ export function useDetectedCitySlug(): string {
     getCitySnapshot,
     getServerCitySnapshot,
   );
+}
+
+/**
+ * Roughly where the reader is, from the same timezone guess.
+ *
+ * Exists so a search box can put nearby places first. Deliberately not
+ * `navigator.geolocation`: ordering a dropdown does not justify a permission
+ * prompt, and a guess at metro scale is all the ordering needs.
+ *
+ * Cached at module scope like the others — `getSnapshot` runs on every render
+ * and must return a referentially identical value or React loops.
+ */
+export function useDetectedPoint(): { latitude: number; longitude: number } | null {
+  return useSyncExternalStore(subscribe, getPointSnapshot, getServerPointSnapshot);
 }
 
 export function useDetectedTimezone(): string {

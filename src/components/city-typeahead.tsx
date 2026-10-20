@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Input } from "@/components/ui";
 import type { PlacePoint, PlaceSuggestion } from "@/lib/explore/types";
 import { placeLabel } from "@/lib/places";
+import { useDetectedPoint } from "@/lib/use-detected-region";
 
 /**
  * Type a city, pick from what matches — over every US place, not a shortlist.
@@ -19,6 +20,13 @@ import { placeLabel } from "@/lib/places";
  *
  * The state code is always shown: "Portland" is two cities people actually mean, and
  * the abbreviation is what makes the choice unambiguous rather than decoration.
+ *
+ * Suggestions are ordered by how close they are to the reader, within bands of
+ * significance. Before that the order came from a `rank` whose tiebreak is land
+ * area, so Camarillo, CA beat Cambridge, MA for "cam" regardless of who was
+ * typing — and with only a handful of rows shown, the place somebody meant was
+ * often not on the list at all. That is what made this box feel like it needed
+ * a lot of typing.
  */
 
 /** Long enough that a typed name settles, short enough to feel immediate. */
@@ -50,6 +58,11 @@ export function CityTypeahead({
   // Guards against a slow earlier response overwriting a newer one.
   const requestId = useRef(0);
 
+  // A guess from the browser's timezone, not a geolocation prompt. Null on the
+  // server render and in a browser we cannot place, in which case the API keeps
+  // its old rank-only ordering.
+  const near = useDetectedPoint();
+
   const label = (place: PlacePoint) =>
     placeLabel(place.name, place.stateCode);
 
@@ -63,9 +76,9 @@ export function CityTypeahead({
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const response = await fetch(
-          `/api/places/search?q=${encodeURIComponent(needle)}`,
-        );
+        const params = new URLSearchParams({ q: needle });
+        if (near) params.set("near", `${near.latitude},${near.longitude}`);
+        const response = await fetch(`/api/places/search?${params}`);
         const payload = (await response.json()) as { places?: PlaceSuggestion[] };
         if (id !== requestId.current) return;
         setMatches(payload.places ?? []);
@@ -77,7 +90,7 @@ export function CityTypeahead({
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, near]);
 
   // Clearing lives in the change handler rather than the effect: the state change
   // belongs to the keystroke that caused it, and setState inside an effect is both a
