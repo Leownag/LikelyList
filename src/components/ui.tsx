@@ -4,6 +4,9 @@ import Link from "next/link";
 /* Shared chrome for the whole app. Sharp corners come from the global reset in
    globals.css, so nothing here needs to say `rounded-none`. */
 
+/* Form controls are text-base below `sm` and text-sm above. iOS Safari zooms the
+   page when a control under 16px takes focus, and it does not zoom back out. */
+
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -68,7 +71,7 @@ export function Input({ className = "", ...props }: ComponentProps<"input">) {
   return (
     <input
       {...props}
-      className={`w-full border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-faint focus:border-accent focus:outline-none ${className}`}
+      className={`w-full border border-border bg-surface-raised px-3 py-2 text-base text-text placeholder:text-faint focus:border-accent focus:outline-none sm:text-sm ${className}`}
     />
   );
 }
@@ -77,7 +80,7 @@ export function Select({ className = "", ...props }: ComponentProps<"select">) {
   return (
     <select
       {...props}
-      className={`w-full border border-border bg-surface-raised px-3 py-2 text-sm text-text focus:border-accent focus:outline-none ${className}`}
+      className={`w-full border border-border bg-surface-raised px-3 py-2 text-base text-text focus:border-accent focus:outline-none sm:text-sm ${className}`}
     />
   );
 }

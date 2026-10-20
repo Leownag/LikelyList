@@ -169,6 +169,71 @@ async function main() {
       await shot(page, "explore");
     });
 
+    await check("a half-typed place is refused, not guessed", async () => {
+      // The bug this pins: `chosenPlace ?? detectedPoint` meant typing a place
+      // and clicking the button searched whatever the timezone guessed, and the
+      // only hint was a line folded inside a collapsed "Advanced" panel.
+      const city = page.locator("#explore-city");
+      await city.click();
+      await city.fill("Amher");
+      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: /Show me this week/i }).click();
+      await page.waitForTimeout(600);
+
+      const body = await page.locator("main").innerText();
+      assert(/can't tell which/i.test(body), "a half-typed place was accepted");
+      assert(!/of New York/i.test(body), "it fell back to the detected city anyway");
+
+      // And choosing from the list clears it again.
+      await city.click();
+      await city.fill("Amherst");
+      await page.locator('[role="option"]').first().waitFor({ timeout: 15_000 });
+      await page.locator('[role="option"]').first().click();
+      assert(
+        !/can't tell which/i.test(await page.locator("main").innerText()),
+        "choosing a suggestion did not clear the refusal",
+      );
+      return await city.inputValue();
+    });
+
+    await check("the city box can be driven from the keyboard", async () => {
+      // The regression this pins: Enter used to take matches[0] unconditionally
+      // and there were no arrow keys at all, so the only way to reach the third
+      // suggestion was to keep typing until it was the first.
+      const city = page.locator("#explore-city");
+      await city.click();
+      await city.fill("cam");
+      await page.locator('[role="option"]').first().waitFor({ timeout: 15_000 });
+
+      const options = page.locator('[role="option"]');
+      const count = await options.count();
+      assert(count > 2, `expected several suggestions, got ${count}`);
+
+      const first = await options.first().getAttribute("id");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("ArrowDown");
+      const active = await city.getAttribute("aria-activedescendant");
+      assert(active && active !== first, "ArrowDown did not move the active option");
+
+      const wanted = (await options.nth(2).innerText()).replace(/\s+/g, " ").trim();
+      await page.keyboard.press("Enter");
+      const committed = await city.inputValue();
+      assert(
+        committed.startsWith(wanted.split(" ")[0]),
+        `Enter committed "${committed}" rather than the highlighted "${wanted}"`,
+      );
+
+      // A half-typed name must survive losing focus; discarding it meant a tap
+      // anywhere else on a phone silently reverted the field.
+      await city.click();
+      await city.fill("amher");
+      await page.locator("h1").click();
+      const kept = await city.inputValue();
+      assert(kept === "amher", `blur discarded the draft, field reads "${kept}"`);
+
+      return `${count} suggestions, Enter took "${wanted}"`;
+    });
+
     await check("explore search returns a week", async () => {
       await page.getByRole("button", { name: /Show me this week/i }).click();
       // Any of the three legitimate outcomes: results, an empty week, or a named error.

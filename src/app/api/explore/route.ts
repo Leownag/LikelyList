@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { readEnv } from "@/lib/env";
+import { visitorHash } from "@/lib/visitor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTicketmasterClient } from "@/lib/ticketmaster/client";
 import { isSendableEvent, searchMusicEvents } from "@/lib/ticketmaster/events";
@@ -268,38 +269,4 @@ export async function POST(request: NextRequest) {
       { status: 502 },
     );
   }
-}
-
-/**
- * A stable, non-reversible key for the caller.
- *
- * Cloudflare provides the client IP in `CF-Connecting-IP`. It is hashed with the
- * app secret and truncated, so what ends up in the counters table identifies a
- * repeat caller without recording who they are.
- */
-async function visitorHash(request: NextRequest, secret: string): Promise<string> {
-  const ip =
-    request.headers.get("cf-connecting-ip") ??
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "unknown";
-
-  if (!secret) return ip === "unknown" ? "unknown" : "unkeyed";
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(ip),
-  );
-
-  return [...new Uint8Array(signature)]
-    .slice(0, 8)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
