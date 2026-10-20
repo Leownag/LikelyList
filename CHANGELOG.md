@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-10-20
+
+Migration `0017` installs pg_trgm into `extensions` rather than `public`.
+Supabase exposes `public` over PostgREST, so anything landing there becomes a
+callable RPC — the subject of migration `0004`. Caught before 0017 had been
+applied anywhere, so there is nothing to undo.
+
 ## 1.1.0 — 2026-10-20
 
 A UX pass. Every entry here traces to something a reader hit, not to a tidy-up.

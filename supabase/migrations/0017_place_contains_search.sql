@@ -24,11 +24,21 @@
 -- (The "St. Louis" vs "Saint Louis" case is deliberately still unsolved. It
 -- needs an abbreviation map, not an index.)
 
-create extension if not exists pg_trgm;
+-- Into `extensions`, not `public`. Supabase exposes `public` over PostgREST, so
+-- anything that lands there becomes a callable RPC — which is the whole subject
+-- of migration 0004. pg_trgm's functions are not SECURITY DEFINER and only
+-- touch the text handed to them, so this is tidiness rather than a hole, but the
+-- stance is worth keeping consistent.
+create extension if not exists pg_trgm with schema extensions;
 
 alter table public.places
   add column search_flat text
   generated always as (replace(search_key, ',', '')) stored;
+
+-- `gin_trgm_ops` resolves from wherever pg_trgm actually ended up: `extensions`
+-- on Supabase, `public` on a plain Postgres where that schema does not exist.
+-- Naming both here means this migration applies either way.
+set local search_path = public, extensions;
 
 -- gin_trgm_ops is what makes `like '%franc%'` indexable at all; the default
 -- operator class cannot serve an unanchored pattern.
