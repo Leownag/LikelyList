@@ -64,7 +64,23 @@ function path(page: Page): string {
 
 async function go(page: Page, to: string, waitUntil: "load" | "networkidle" = "load") {
   const response = await page.goto(`${BASE}${to}`, { waitUntil, timeout: 45_000 });
+  await settled(page);
   return response;
+}
+
+/**
+ * Waits out the /app loading skeleton.
+ *
+ * Since loading.tsx exists, Next paints a skeleton the instant a link is clicked
+ * and swaps in the real content when the server render lands. Without this, a
+ * check reads the skeleton and concludes the page is empty — which is exactly
+ * what happened to the two slowest sections, My feed and What I follow.
+ */
+async function settled(page: Page) {
+  const skeleton = page.locator("[data-loading]");
+  if ((await skeleton.count()) > 0) {
+    await skeleton.first().waitFor({ state: "detached", timeout: 45_000 });
+  }
 }
 
 /**
@@ -379,6 +395,21 @@ async function main() {
       assert(cookie?.value !== "zh-Hant", "a switched-off locale was written to a cookie");
     });
 
+    await check("the 404 is ours, with a way home", async () => {
+      const response = await page.goto(`${BASE}/definitely-not-a-page`);
+      assert(response?.status() === 404, `expected 404, got ${response?.status()}`);
+      const body = await page.locator("body").innerText();
+      assert(
+        !/This page could not be found/i.test(body),
+        "still serving Next's own unstyled 404",
+      );
+      assert(
+        (await page.getByRole("link", { name: /likelylist/i }).count()) > 0,
+        "the 404 offers no way back",
+      );
+      await shot(page, "not-found");
+    });
+
     await check("an unknown path is a 404", async () => {
       const response = await go(page, "/definitely-not-a-page");
       assert(response?.status() === 404, `status ${response?.status()}`);
@@ -435,7 +466,12 @@ async function main() {
     });
 
     await check("/app/feeds forwards to the screenshot section", async () => {
+      // The redirect is a client navigation after the RSC response, and the
+      // loading skeleton now paints before it. Waiting for the URL rather than
+      // for load also keeps the next check's goto from aborting this one.
       await go(app, "/app/feeds");
+      await app.waitForURL(/\/app\/subscriptions/, { timeout: 30_000 });
+      await settled(app);
       assert(
         path(app).startsWith("/app/subscriptions"),
         `landed on ${path(app)}`,
@@ -456,6 +492,7 @@ async function main() {
         await go(app, "/app");
         await app.getByRole("navigation").getByRole("link", { name: label, exact: true }).click();
         await app.waitForURL(`${BASE}${expected}`, { timeout: 30_000 });
+        await settled(app);
         const text = await app.locator("main").innerText();
         assert(marker.test(text), `page body did not mention ${marker}`);
         await shot(app, `nav-${expected.replace(/\W+/g, "-")}`);
@@ -626,6 +663,27 @@ async function main() {
       return `${before} → ${after}`;
     });
 
+    await check("the app nav says which section you are in", async () => {
+      await go(app, "/app/pinned");
+      const current = app.locator('nav a[aria-current="page"]');
+      assert((await current.count()) === 1, "expected exactly one current nav link");
+      const label = (await current.innerText()).trim();
+      assert(/pinned|收藏/i.test(label), `current link reads "${label}" on /app/pinned`);
+      return label;
+    });
+
+    await check("saving the schedule says so", async () => {
+      // It was a bare server-action form: a full round trip that re-rendered the
+      // same values and told the reader nothing.
+      await go(app, "/app/settings");
+      const hour = app.locator("#digest_send_hour");
+      const before = await hour.inputValue();
+      await hour.selectOption(before === "9" ? "10" : "9");
+      await app.getByRole("button", { name: "Save", exact: true }).click();
+      await app.getByText(/^Saved\.$|^已儲存。$/).waitFor({ timeout: 30_000 });
+      await shot(app, "settings-confirmation");
+    });
+
     await check("pausing the digest shows the warning on the overview", async () => {
       await go(app, "/app/settings");
       const toggle = app.locator("input[name=digest_enabled]");
@@ -706,7 +764,13 @@ async function main() {
       await confirm.fill("DELETE");
       await shot(app, "settings-delete");
       await submit(app, submitButton);
-      await app.waitForURL(`${BASE}/`, { timeout: 30_000 });
+      // deleteAccount redirects to /?deleted=1 so the landing page can say what
+      // just happened, rather than dropping the reader on the sales pitch.
+      await app.waitForURL(`${BASE}/?deleted=1`, { timeout: 30_000 });
+      assert(
+        /deleted/i.test(await app.locator("main").innerText()),
+        "the landing page did not acknowledge the deletion",
+      );
       await go(app, "/app");
       assert(path(app).startsWith("/login"), `still signed in at ${path(app)}`);
 

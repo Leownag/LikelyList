@@ -21,6 +21,7 @@ export function PendingFeed({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (summary) return <Notice>{summary}</Notice>;
 
@@ -41,6 +42,8 @@ export function PendingFeed({
   }
 
   return (
+    <>
+      {error ? <Notice tone="error">{error}</Notice> : null}
     <ConfirmForm
       feedId={feedId}
       extraction={extraction}
@@ -48,11 +51,20 @@ export function PendingFeed({
         setSummary(text);
         router.refresh();
       }}
-      onDiscard={() => {
-        void fetch(`/api/feeds/${feedId}`, { method: "DELETE" });
-        setOpen(false);
+      onDiscard={async () => {
+        // Awaited, not fired and forgotten. The UI used to reset regardless, so
+        // a failed delete left the row sitting in "Waiting for you" with nothing
+        // said and no way to tell it apart from a new one.
+        try {
+          const response = await fetch(`/api/feeds/${feedId}`, { method: "DELETE" });
+          if (!response.ok) throw new Error(String(response.status));
+          setOpen(false);
+        } catch {
+          setError("Could not discard that. Try again.");
+        }
         router.refresh();
       }}
     />
+    </>
   );
 }

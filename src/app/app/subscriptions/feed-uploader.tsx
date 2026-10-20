@@ -92,9 +92,18 @@ export function FeedUploader() {
             setStage({ kind: "done", summary });
             router.refresh();
           }}
-          onDiscard={() => {
-            void fetch(`/api/feeds/${stage.feedId}`, { method: "DELETE" });
-            setStage({ kind: "idle" });
+          onDiscard={async () => {
+            // Awaited: the panel used to reset whatever the server said, so a
+            // failed delete looked exactly like a successful one.
+            try {
+              const response = await fetch(`/api/feeds/${stage.feedId}`, {
+                method: "DELETE",
+              });
+              if (!response.ok) throw new Error(String(response.status));
+              setStage({ kind: "idle" });
+            } catch {
+              setError("Could not discard that. Try again.");
+            }
             router.refresh();
           }}
         />

@@ -1,5 +1,5 @@
 import { requireProfile } from "@/lib/supabase/server";
-import { Button, Card, Label, Notice, SectionHeading, Select } from "@/components/ui";
+import { Card, Label, Notice, SectionHeading, Select } from "@/components/ui";
 import {
   DIGEST_SEND_HOURS,
   DIGEST_WEEKDAY,
@@ -8,6 +8,7 @@ import {
   nextWeekdayAt,
 } from "@/lib/time";
 import { deleteAccount, updateSchedule } from "./actions";
+import { DeliveryForm } from "./delivery-form";
 import { DeleteAccount } from "./delete-account";
 import { getI18n, getT } from "@/lib/i18n/server";
 import type { Locale } from "@/lib/i18n/locales";
@@ -39,7 +40,19 @@ export default async function SettingsPage() {
           {t("settings.delivery.heading")}
         </SectionHeading>
         <Card className="p-5">
-          <form action={updateSchedule} className="space-y-5">
+          <DeliveryForm
+            action={updateSchedule}
+            saveLabel={t("common.save")}
+            savingLabel={t("common.saving")}
+            savedLabel={t("settings.saved")}
+            footer={
+              <p className="text-xs text-faint">
+                {t("settings.next", {
+                  when: formatNext(nextSend, profile.timezone, locale),
+                })}
+              </p>
+            }
+          >
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <Label htmlFor="timezone">{t("settings.timezone")}</Label>
@@ -87,15 +100,7 @@ export default async function SettingsPage() {
               </span>
             </label>
 
-            <div className="flex flex-wrap items-center gap-4">
-              <Button type="submit">{t("common.save")}</Button>
-              <p className="text-xs text-faint">
-                {t("settings.next", {
-                  when: formatNext(nextSend, profile.timezone, locale),
-                })}
-              </p>
-            </div>
-          </form>
+          </DeliveryForm>
 
           <div className="mt-5">
             <Notice>{t("settings.drift")}</Notice>

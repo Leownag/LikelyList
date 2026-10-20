@@ -7,7 +7,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { readEnv } from "@/lib/env";
 import { DIGEST_SEND_HOURS, TIMEZONES } from "@/lib/time";
 
-export async function updateSchedule(formData: FormData) {
+/** What the form shows after a submit. */
+export type ScheduleState = { ok: true } | { ok: false; message: string };
+
+/**
+ * Returns its failures rather than throwing them.
+ *
+ * A thrown error from a server action reaches the reader as Next's error
+ * boundary — a blank screen in place of the settings page, for something as
+ * ordinary as a hour that is not on the list. The caller renders these in a
+ * status line beside the save button instead.
+ */
+export async function updateSchedule(
+  _state: ScheduleState | null,
+  formData: FormData,
+): Promise<ScheduleState> {
   const user = await requireUser();
   const supabase = await createClient();
 
@@ -19,13 +33,13 @@ export async function updateSchedule(formData: FormData) {
   // here would make Intl throw every time the drainer computed a send time,
   // which would break this subscriber's digest permanently.
   if (!TIMEZONES.includes(timezone as (typeof TIMEZONES)[number])) {
-    throw new Error("Unrecognised timezone.");
+    return { ok: false, message: "That is not one of the offered timezones." };
   }
   if (!(DIGEST_SEND_HOURS as readonly number[]).includes(hour)) {
-    throw new Error("Send hour must be one of the offered morning hours.");
+    return { ok: false, message: "That is not one of the offered morning hours." };
   }
 
-  await supabase
+  const { error } = await supabase
     .from("profiles")
     .update({
       timezone,
@@ -34,8 +48,13 @@ export async function updateSchedule(formData: FormData) {
     })
     .eq("id", user.id);
 
+  if (error) {
+    return { ok: false, message: "Could not save that. Try again." };
+  }
+
   revalidatePath("/app/settings");
   revalidatePath("/app");
+  return { ok: true };
 }
 
 /**
@@ -74,5 +93,8 @@ export async function deleteAccount(formData: FormData) {
   const supabase = await createClient();
   await supabase.auth.signOut();
 
-  redirect("/");
+  // Not a bare "/": the reader lands on the marketing page, subscribe box and
+  // all, with no acknowledgement that the thing they just typed DELETE to
+  // confirm actually happened.
+  redirect("/?deleted=1");
 }

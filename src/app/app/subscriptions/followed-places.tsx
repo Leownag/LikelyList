@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Label, Notice } from "@/components/ui";
+import { Button, Card, Label, Notice, StatusLine } from "@/components/ui";
 import { CityTypeahead } from "@/components/city-typeahead";
 import { placeLabel } from "@/lib/places";
 import { followPlace, unfollowPlace } from "./actions";
+import { FOLLOWED_PLACE_LIMIT } from "@/lib/limits";
 import type { PlaceSuggestion } from "@/lib/explore/types";
 
 export type FollowedPlace = {
@@ -30,6 +31,10 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
   const router = useRouter();
   const [choice, setChoice] = useState<PlaceSuggestion | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** What just happened, in the same place ArtistSearch says it. */
+  const [status, setStatus] = useState<string | null>(null);
+  /** Typed but not committed, so the dead Follow button can explain itself. */
+  const [pendingText, setPendingText] = useState("");
   const [removed, setRemoved] = useState<Set<number>>(new Set());
   const [pending, startTransition] = useTransition();
   const [adding, setAdding] = useState(false);
@@ -42,6 +47,7 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
     setError(null);
     try {
       await followPlace(choice.geoid);
+      setStatus(`Now following ${label(choice)}.`);
       setChoice(null);
       router.refresh();
     } catch (cause) {
@@ -54,8 +60,10 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
   }
 
   function remove(id: number) {
+    const gone = places.find((place) => place.id === id);
     setRemoved((current) => new Set(current).add(id));
     setError(null);
+    if (gone) setStatus(`Stopped following ${label(gone)}.`);
     startTransition(async () => {
       try {
         await unfollowPlace(id);
@@ -72,7 +80,18 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
     });
   }
 
-  const label = (place: FollowedPlace) => placeLabel(place.name, place.stateCode);
+  const label = (place: { name: string; stateCode: string | null }) =>
+    placeLabel(place.name, place.stateCode);
+
+  const full = visible.length >= FOLLOWED_PLACE_LIMIT;
+  // Why the button is dead, said where the button is. It was simply disabled,
+  // which reads as broken when you have typed a town name and can see it in the
+  // list above.
+  const blocker = full
+    ? `That is ${FOLLOWED_PLACE_LIMIT} towns already — remove one before adding another.`
+    : !choice && pendingText.trim()
+      ? "Pick a town from the list to follow it."
+      : null;
 
   return (
     <Card className="p-5">
@@ -85,10 +104,12 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
             onChange={(place) => {
               setChoice(place);
               setError(null);
+              setStatus(null);
             }}
+            onDraftChange={setPendingText}
           />
         </div>
-        <Button onClick={add} disabled={!choice || adding}>
+        <Button onClick={add} disabled={!choice || adding || full}>
           {adding ? "Adding…" : "Follow"}
         </Button>
       </div>
@@ -98,6 +119,12 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
         above. Shows are found within a radius of the point, so a small town picks
         up whatever is listed nearby.
       </p>
+
+      <div className="mt-2">
+        <StatusLine tone={blocker ? "error" : "success"}>
+          {blocker ?? status}
+        </StatusLine>
+      </div>
 
       {error ? (
         <div className="mt-3">
