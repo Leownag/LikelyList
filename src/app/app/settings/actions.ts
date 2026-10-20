@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient, requireUser } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { readEnv } from "@/lib/env";
-import { TIMEZONES } from "@/lib/time";
+import { DIGEST_SEND_HOURS, TIMEZONES } from "@/lib/time";
 
 export async function updateSchedule(formData: FormData) {
   const user = await requireUser();
@@ -21,8 +21,8 @@ export async function updateSchedule(formData: FormData) {
   if (!TIMEZONES.includes(timezone as (typeof TIMEZONES)[number])) {
     throw new Error("Unrecognised timezone.");
   }
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
-    throw new Error("Send hour must be between 0 and 23.");
+  if (!(DIGEST_SEND_HOURS as readonly number[]).includes(hour)) {
+    throw new Error("Send hour must be one of the offered morning hours.");
   }
 
   await supabase
