@@ -136,6 +136,7 @@ export function ExploreClient({
           payload.totalBeforeGenreFilter ?? payload.events.length,
         placeLabel: payload.placeLabel ?? null,
         radiusMiles: payload.radiusMiles ?? null,
+        truncated: payload.truncated ?? false,
       });
       // Kept in sync with what the server actually used, so the control reflects
       // the result on screen rather than the reader's last click.
@@ -243,8 +244,12 @@ export function ExploreClient({
         <section>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <p className="label-pixel">
-              {result.events.length} of {result.totalBeforeGenreFilter} shows ·{" "}
-              {result.window}
+              {/* "99 of 99 shows" reads as a cap being hit. The ratio only says
+                  anything when the genre filter actually removed some. */}
+              {result.events.length === result.totalBeforeGenreFilter
+                ? `${result.events.length} shows`
+                : `${result.events.length} of ${result.totalBeforeGenreFilter} shows`}{" "}
+              · {result.window}
             </p>
             {result.events.length > 0 ? (
               <Button variant="outline" onClick={() => setShowSubscribe(true)}>
@@ -252,6 +257,17 @@ export function ExploreClient({
               </Button>
             ) : null}
           </div>
+
+          {/* Results are date-ordered and we ask for one page, so a busy city
+              runs out of page before it runs out of week. Saying so is the
+              difference between "nothing later this week" and "we stopped
+              looking". */}
+          {result.truncated ? (
+            <p className="mt-2 text-xs text-faint">
+              Ticketmaster returned a full page, so the last days of this window
+              are probably incomplete. A smaller radius narrows it.
+            </p>
+          ) : null}
 
           {/*
             Distance, shown once there is a result and no longer folded away.

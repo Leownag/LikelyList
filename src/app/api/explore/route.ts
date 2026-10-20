@@ -4,7 +4,11 @@ import { readEnv } from "@/lib/env";
 import { visitorHash } from "@/lib/visitor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTicketmasterClient } from "@/lib/ticketmaster/client";
-import { isSendableEvent, searchMusicEvents } from "@/lib/ticketmaster/events";
+import {
+  PAGE_SIZE as TICKETMASTER_PAGE_SIZE,
+  isSendableEvent,
+  searchMusicEvents,
+} from "@/lib/ticketmaster/events";
 import {
   eventTimezone,
   pickImage,
@@ -90,19 +94,29 @@ const BodySchema = z
   );
 
 /**
- * The local dates these rows actually span, as the header should state it.
+ * The seven days the search covers, stated in the venue-local terms the rows use.
  *
- * Ticketmaster labels every event with the venue's own local date, so a range
- * derived from UTC can disagree with the first row on screen. Reading it back
- * off the results cannot.
+ * Anchored on the earliest row rather than on UTC: Ticketmaster labels every
+ * event with the venue's own local date, so a range derived from UTC disagreed
+ * with the first row on screen — the header said the 20th above a row dated the
+ * 19th.
+ *
+ * Anchored on the earliest row rather than on the *range* of rows, which was the
+ * previous attempt and under-reported in the other direction: results are
+ * date-ordered and capped at one page, so a busy city's rows stop short of the
+ * week and the header shrank to match. The window is seven days; whether the
+ * rows fill it is what `truncated` is for.
  */
-function coveredRange(events: TmEvent[]): string | null {
+function searchedWindow(events: TmEvent[], fallbackStart: Date): string {
   const dates = events
     .map((event) => event.dates?.start?.localDate)
     .filter((date): date is string => Boolean(date))
     .sort();
-  if (dates.length === 0) return null;
-  return `${dates[0]} … ${dates[dates.length - 1]}`;
+
+  const start = dates[0] ?? localDateString("UTC", fallbackStart);
+  const [year, month, day] = start.split("-").map(Number);
+  const end = new Date(Date.UTC(year, month - 1, day + 6));
+  return `${start} … ${localDateString("UTC", end)}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -238,7 +252,8 @@ export async function POST(request: NextRequest) {
       countryCode: "US",
       startDateTime: now,
       endDateTime: searchEnd,
-      // One page. Somebody browsing does not need ten.
+      // One page. Somebody browsing does not need ten — but a full page means
+      // the week is cut short, which the response says so the UI can too.
       maxPages: 1,
     });
 
@@ -280,9 +295,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       events,
-      // Read off the rows that came back rather than computed in UTC, so the
-      // range in the header is one the list can actually satisfy.
-      window: coveredRange(found) ?? `${localDateString("UTC", now)} … ${localDateString("UTC", searchEnd)}`,
+      window: searchedWindow(found, now),
+      // One page is all we ask for, so a full page means there was more.
+      truncated: found.length >= TICKETMASTER_PAGE_SIZE,
       // So the UI can say "12 of 43 matched your genres" honestly.
       totalBeforeGenreFilter: found.filter((event) => isSendableEvent(event)).length,
       // Echoed back so a ZIP search can show where it decided that was — the one

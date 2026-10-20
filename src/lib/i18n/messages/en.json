@@ -89,7 +89,7 @@
   "feed.unconfigured": "This week’s list is unavailable right now. Your subscription is unaffected — the weekly email still goes out.",
   "feed.empty.title": "nothing this week",
   "feed.empty.noCity": "You haven't followed a city yet — that is the one thing the feed cannot guess.",
-  "feed.empty.noMatch": "No listed shows matched your genres or artists. Listings are refreshed by the weekly run, so a brand-new account can look empty until then.",
+  "feed.empty.noMatch": "Nothing matched here. Listings are rebuilt by the weekly run and only kept for a day and a half, so between runs this page can be empty even when your filters are right \u2014 the email itself is built fresh. Searching a city reaches Ticketmaster directly.",
   "feed.empty.change": "Change what you follow",
   "feed.empty.search": "Search any city instead",
   "feed.unfiltered": "You haven't told us what you listen to yet, so this is everything listed in {cities} — not a filtered selection.",

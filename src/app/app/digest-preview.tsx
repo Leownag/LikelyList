@@ -74,7 +74,9 @@ export function DigestPreview({ diagnostics = false }: { diagnostics?: boolean }
         </StatusLine>
       </div>
 
-      {summary && diagnostics ? <DigestSummaryPanel summary={summary} /> : null}
+      {summary ? (
+        <DigestSummaryPanel summary={summary} diagnostics={diagnostics} />
+      ) : null}
     </div>
   );
 }
