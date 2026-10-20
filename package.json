@@ -1,6 +1,6 @@
 {
   "name": "likelylist",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,11 +10,13 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\" \"scripts/**/*.test.ts\"",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy": "BUILD_SHA=$(git rev-parse HEAD) opennextjs-cloudflare build && opennextjs-cloudflare deploy && npm run smoke",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "build:logo": "tsx scripts/build-logo.ts",
     "preview:email": "tsx scripts/preview-email.ts",
     "test:ui": "tsx --env-file=.env.local scripts/ui-test.ts",
+    "test:ui:prod": "tsx --env-file=.env.local scripts/ui-test.ts https://likelylist.tech",
+    "smoke": "tsx scripts/smoke.ts",
     "preflight": "tsx --env-file=.env.local scripts/preflight.ts",
     "security:check": "tsx --env-file=.env.local scripts/security-check.ts",
     "tm:probe": "tsx --env-file=.env.local scripts/tm-probe.ts",
