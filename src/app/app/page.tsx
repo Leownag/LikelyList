@@ -174,7 +174,7 @@ export default async function OverviewPage() {
           </SectionHeading>
           {subscriptions.length === 0 ? (
             <EmptyState title={t("common.noneYet")}>
-              <ButtonLink href="/app/subscriptions" variant="outline">
+              <ButtonLink href="/app/subscriptions#cities" variant="outline">
                 {t("overview.cities.add")}
               </ButtonLink>
             </EmptyState>
@@ -210,7 +210,7 @@ export default async function OverviewPage() {
           </SectionHeading>
           {genrePrefs.length === 0 ? (
             <EmptyState title={t("common.noneYet")}>
-              <ButtonLink href="/app/subscriptions" variant="outline">
+              <ButtonLink href="/app/subscriptions#genres" variant="outline">
                 {t("overview.genres.add")}
               </ButtonLink>
             </EmptyState>
@@ -255,7 +255,7 @@ export default async function OverviewPage() {
         <Card className="p-5">
           {artists.length === 0 ? (
             <EmptyState title={t("common.noneYet")}>
-              <ButtonLink href="/app/subscriptions" variant="outline">
+              <ButtonLink href="/app/subscriptions#artists" variant="outline">
                 {t("overview.artists.add")}
               </ButtonLink>
             </EmptyState>
