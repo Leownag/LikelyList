@@ -8,13 +8,13 @@ import {
   toCachedEvent,
 } from "@/lib/ticketmaster/events";
 import type { TmEvent } from "@/lib/ticketmaster/types";
-import { digestWindow, sendInstantFor } from "@/lib/time";
+import { digestRunDate, digestWindow, sendInstantFor } from "@/lib/time";
 import { encodeGeohash } from "@/lib/geohash";
 import { parseGeoCellKey } from "@/lib/geo-cell";
 import type { DigestRun, Profile } from "@/lib/db";
 
 /**
- * The Friday half of the pipeline: work out what to send, and to whom.
+ * The building half of the pipeline: work out what to send, and to whom.
  *
  * The important structural decision is that Ticketmaster is queried once per
  * DISTINCT subscribed city, not once per subscriber. Two people following Boston
@@ -32,7 +32,7 @@ const CACHE_TTL_HOURS = 36;
 /**
  * How far ahead the "on sale this week" query looks for event dates.
  *
- * A show whose tickets drop on Friday is typically months out, so this window has
+ * A show whose tickets drop this week is typically months out, so this window has
  * to be much wider than the digest's own seven days. It is a bound on the request,
  * not the thing that selects onsales — that is `onsaleOnAfterStartDate`.
  */
@@ -82,10 +82,13 @@ export async function planWeeklyDigest(
 ): Promise<PlanResult> {
   const warnings: string[] = [];
 
-  // The run is keyed on the UTC date so a retry on the same day resumes the same
-  // run instead of duplicating it.
-  const runDate = now.toISOString().slice(0, 10);
-  const window = digestWindow(now, "UTC");
+  // Keyed on the Wednesday the run is *for*, not the evening it is built on, so
+  // a retry either side of UTC midnight resumes the same run instead of opening
+  // a second one. The window is anchored there too: the listings have to start
+  // on the morning the email is read.
+  const digestDate = digestRunDate(now);
+  const runDate = digestDate.toISOString().slice(0, 10);
+  const window = digestWindow(digestDate, "UTC");
 
   const { data: existingRun } = await supabase
     .from("digest_runs")
@@ -301,7 +304,7 @@ export async function planWeeklyDigest(
  * This subscriber's send instant, or a UTC-based one if their timezone is
  * unusable.
  *
- * Exported for testing: the failure it prevents is invisible until a Friday.
+ * Exported for testing: the failure it prevents is invisible until send day.
  */
 export function safeSendInstant(
   now: Date,
@@ -322,11 +325,7 @@ export function safeSendInstant(
         subscriber.timezone,
       )}, scheduled against UTC instead`,
     );
-    return sendInstantFor(
-      now,
-      "UTC",
-      clampHour(subscriber.digest_send_hour),
-    ).toISOString();
+    return sendInstantFor(now, "UTC", subscriber.digest_send_hour).toISOString();
   }
 }
 
@@ -345,11 +344,6 @@ export function dedupeByEventId(events: TmEvent[]): TmEvent[] {
     if (!byId.has(event.id)) byId.set(event.id, event);
   }
   return [...byId.values()];
-}
-
-/** The column has a CHECK, but the fallback path must not be able to throw. */
-function clampHour(hour: number): number {
-  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 8;
 }
 
 /**

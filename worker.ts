@@ -11,9 +11,9 @@
  * bundled twice.
  *
  * Cron triggers, configured in wrangler.jsonc:
- *   "0 8 * * 5"     build the week's run and enqueue one job per subscriber
+ *   "0 19 * * 2"    build the week's run and enqueue one job per subscriber
  *   "*\/5 * * * *"  drain the queue, releasing each job when its recipient's
- *                   local morning arrives
+ *                   local Wednesday morning arrives
  *
  * Email routing, configured in the Cloudflare dashboard:
  *   unsubscribe@likelylist.tech  →  send to this Worker
@@ -26,7 +26,7 @@ import { default as handler } from "./.open-next/worker.js";
 /** Only the bindings these handlers themselves touch. */
 type WorkerEnv = { CRON_SECRET?: string };
 
-const WEEKLY_CRON = "0 8 * * 5";
+const WEEKLY_CRON = "0 19 * * 2";
 
 /**
  * Minimal shape of an inbound message. Declared locally rather than importing

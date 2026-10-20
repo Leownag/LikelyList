@@ -1,8 +1,8 @@
 /**
  * Timezone arithmetic for scheduling.
  *
- * The Friday cron fires once, in UTC. Deciding *when* each subscriber receives
- * their email has to happen per user, because "Friday morning" means a
+ * The weekly cron fires once, in UTC. Deciding *when* each subscriber receives
+ * their email has to happen per user, because "Wednesday morning" means a
  * different instant in Boston and in Taipei — and because a UTC cron expression
  * silently drifts by an hour twice a year when the recipient observes DST.
  *
@@ -87,23 +87,44 @@ export function localDateString(timeZone: string, at: Date): string {
 /**
  * The instant at which this user should receive the digest for a run.
  *
- * `runDate` is the run's calendar Friday (UTC). If the user's local clock is
- * already past their send hour when the run is built — which happens for zones
- * far ahead of UTC — the job becomes immediately sendable rather than waiting a
- * week.
+ * Anchored on the reader's own next DIGEST_WEEKDAY rather than on whatever
+ * calendar day the run happens to fall on in their zone. The two are not the
+ * same day: the builder fires on a Tuesday evening in UTC, which is already
+ * Wednesday in Tokyo and still Tuesday in Honolulu, so reading the weekday off
+ * the run instant hands zones far enough from UTC the wrong day entirely.
+ *
+ * If that local morning has already passed when the run is built, the job
+ * becomes immediately sendable rather than waiting a week.
  */
 export function sendInstantFor(
-  runDate: Date,
+  runStart: Date,
   timeZone: string,
   sendHour: number,
 ): Date {
-  const local = localParts(timeZone, runDate);
-  return zonedTimeToUtc(
+  const local = localParts(timeZone, runStart);
+  const daysAhead = (DIGEST_WEEKDAY - local.weekday + 7) % 7;
+  const target = zonedTimeToUtc(
     timeZone,
     local.year,
     local.month,
-    local.day,
-    sendHour,
+    local.day + daysAhead,
+    morningSendHour(sendHour),
+  );
+  return target.getTime() < runStart.getTime() ? runStart : target;
+}
+
+/**
+ * The UTC calendar date a run building at `now` is for.
+ *
+ * The first DIGEST_WEEKDAY at or after `now`, in UTC. Used both as the run's
+ * key — so a retry either side of UTC midnight resumes the same run instead of
+ * opening a second one — and as the anchor for the listings window, which has
+ * to start on the day the email is read, not the evening it is assembled.
+ */
+export function digestRunDate(now: Date): Date {
+  const daysAhead = (DIGEST_WEEKDAY - now.getUTCDay() + 7) % 7;
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysAhead),
   );
 }
 
@@ -114,8 +135,8 @@ export function digestWindow(
 ): { start: Date; end: Date; startDate: string; endDate: string } {
   const local = localParts(timeZone, now);
 
-  // Start from local midnight today, so a Friday-morning email still includes
-  // shows happening that same Friday night.
+  // Start from local midnight today, so a Wednesday-morning email still
+  // includes shows happening that same Wednesday night.
   const start = zonedTimeToUtc(timeZone, local.year, local.month, local.day, 0);
   const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -150,8 +171,40 @@ export function nextWeekdayAt(
   return target;
 }
 
-/** The digest goes out on a Friday, in the reader's own timezone. */
-export const DIGEST_WEEKDAY = 5;
+/**
+ * The digest goes out midweek, in the reader's own timezone.
+ *
+ * Wednesday rather than Friday: the week it covers starts the morning it lands,
+ * so a Friday email spent two of its seven days on a weekend already booked.
+ * Midweek is when there is still something to do about a Saturday show.
+ */
+export const DIGEST_WEEKDAY = 3;
+
+/**
+ * The hours Settings offers for delivery.
+ *
+ * A morning window, not the full day: "Wednesday morning" is the promise the
+ * landing page makes, and an hour outside it would quietly make that false.
+ */
+export const DIGEST_SEND_HOURS = [6, 7, 8, 9, 10, 11] as const;
+
+export const DEFAULT_SEND_HOUR = 8;
+
+/**
+ * A stored send hour, pinned to the window above.
+ *
+ * Applied on the way out rather than written back: profiles predate the morning
+ * window and the column's CHECK still allows 0–23, so a legacy 21:00 would
+ * otherwise schedule a Wednesday *evening* send. An hour that is not a real
+ * hour at all falls back to the default instead of clamping, since clamping
+ * nonsense to 11:00 would look deliberate.
+ */
+export function morningSendHour(hour: number): number {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return DEFAULT_SEND_HOUR;
+  const first = DIGEST_SEND_HOURS[0];
+  const last = DIGEST_SEND_HOURS[DIGEST_SEND_HOURS.length - 1];
+  return Math.min(Math.max(hour, first), last);
+}
 
 /**
  * When the next digest lands, spelled out for the reader.
@@ -168,7 +221,7 @@ export function nextDigestLabel(
     now,
     profile.timezone,
     DIGEST_WEEKDAY,
-    profile.digest_send_hour,
+    morningSendHour(profile.digest_send_hour),
   );
   return new Intl.DateTimeFormat(locale, {
     timeZone: profile.timezone,

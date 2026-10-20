@@ -2,14 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  DIGEST_WEEKDAY,
+  digestRunDate,
   digestWindow,
   formatEventDate,
   formatEventTime,
   formatInstantInZone,
   localDateString,
   localParts,
+  morningSendHour,
   nextWeekdayAt,
   sendInstantFor,
+  TIMEZONES,
   timeZoneOffsetMs,
   zonedTimeToUtc,
 } from "./time";
@@ -73,47 +77,100 @@ test("localParts and localDateString use the target zone, not the host", () => {
   assert.equal(parts.hour, 11);
 });
 
-test("sendInstantFor gives each subscriber their own local morning", () => {
-  const runDate = new Date("2026-08-07T08:00:00Z"); // the Friday cron firing
+// Tuesday 19:00 UTC: the weekly builder firing.
+const RUN_START = new Date("2026-08-04T19:00:00Z");
 
+test("sendInstantFor gives each subscriber their own local morning", () => {
   assert.equal(
-    sendInstantFor(runDate, "America/New_York", 8).toISOString(),
-    "2026-08-07T12:00:00.000Z",
+    sendInstantFor(RUN_START, "America/New_York", 8).toISOString(),
+    "2026-08-05T12:00:00.000Z",
   );
   assert.equal(
-    sendInstantFor(runDate, "America/Los_Angeles", 8).toISOString(),
-    "2026-08-07T15:00:00.000Z",
+    sendInstantFor(RUN_START, "America/Los_Angeles", 8).toISOString(),
+    "2026-08-05T15:00:00.000Z",
   );
-  // Taipei is already past 08:00 local when the cron fires, so this job is
-  // immediately sendable rather than being held for a week.
-  const taipei = sendInstantFor(runDate, "Asia/Taipei", 8);
-  assert.equal(taipei.toISOString(), "2026-08-07T00:00:00.000Z");
-  assert.ok(taipei.getTime() < runDate.getTime());
+  // Taipei is already into Wednesday when the builder fires, so its send is the
+  // nearest one — two hours out, not a week.
+  assert.equal(
+    sendInstantFor(RUN_START, "Asia/Taipei", 8).toISOString(),
+    "2026-08-05T00:00:00.000Z",
+  );
+});
+
+test("every supported zone is sent on its own local Wednesday", () => {
+  // The regression this pins down: the send day used to be whatever calendar day
+  // the run instant fell on in the reader's zone, which is not the same day
+  // everywhere. A Friday 08:00 UTC run was already Thursday evening in Honolulu,
+  // so that reader got a "Friday" email on a Thursday — and nothing in the code
+  // ever asserted the weekday, because the cron expression was the only place it
+  // was written down.
+  for (const zone of TIMEZONES) {
+    for (const hour of [6, 8, 11]) {
+      const at = sendInstantFor(RUN_START, zone, hour);
+      const local = localParts(zone, at);
+      assert.equal(local.weekday, DIGEST_WEEKDAY, `${zone} @ ${hour}`);
+      assert.equal(local.hour, hour, `${zone} @ ${hour}`);
+      assert.ok(at.getTime() >= RUN_START.getTime(), `${zone} @ ${hour}`);
+    }
+  }
+});
+
+test("a local morning already past when the run is built goes out at once", () => {
+  // Zones far enough ahead of UTC can be past their send hour by the time the
+  // builder fires. Waiting a week would be worse than being a few hours late,
+  // and the cached listings the job reads expire long before then.
+  const late = new Date("2026-08-04T22:00:00Z"); // 07:00 Wednesday in Tokyo
+  assert.equal(sendInstantFor(late, "Asia/Tokyo", 6).getTime(), late.getTime());
+});
+
+test("a send hour outside the morning window is pinned back into it", () => {
+  assert.equal(morningSendHour(8), 8);
+  assert.equal(morningSendHour(3), 6);
+  assert.equal(morningSendHour(21), 11);
+  // Not an hour at all: the default, not a clamp that would look chosen.
+  assert.equal(morningSendHour(99), 8);
+  assert.equal(morningSendHour(Number.NaN), 8);
+
+  const at = sendInstantFor(RUN_START, "America/New_York", 21);
+  assert.equal(localParts("America/New_York", at).hour, 11);
+});
+
+test("digestRunDate is the Wednesday the run is for", () => {
+  // Built Tuesday evening UTC, for the Wednesday that follows.
+  assert.equal(
+    digestRunDate(RUN_START).toISOString(),
+    "2026-08-05T00:00:00.000Z",
+  );
+  // A retry after UTC midnight resumes the same run rather than opening a second.
+  assert.equal(
+    digestRunDate(new Date("2026-08-05T02:00:00Z")).toISOString(),
+    "2026-08-05T00:00:00.000Z",
+  );
 });
 
 test("digestWindow covers seven days from local midnight today", () => {
-  // Friday morning in Boston.
-  const now = new Date("2026-08-07T12:30:00Z");
+  // Wednesday morning in Boston.
+  const now = new Date("2026-08-05T12:30:00Z");
   const window = digestWindow(now, "America/New_York");
 
-  assert.equal(window.startDate, "2026-08-07");
-  assert.equal(window.endDate, "2026-08-13");
+  assert.equal(window.startDate, "2026-08-05");
+  assert.equal(window.endDate, "2026-08-11");
   assert.equal(window.end.getTime() - window.start.getTime(), 7 * 24 * HOUR);
   // Starting at local midnight means tonight's shows are still included.
   assert.ok(window.start.getTime() < now.getTime());
 });
 
 test("nextWeekdayAt skips to next week once the hour has passed", () => {
-  // Friday 12:30 UTC = 08:30 in Boston, i.e. past an 08:00 send hour.
-  const fridayMorning = new Date("2026-08-07T12:30:00Z");
-  const next = nextWeekdayAt(fridayMorning, "America/New_York", 5, 8);
-  assert.equal(next.toISOString(), "2026-08-14T12:00:00.000Z");
+  // Wednesday 12:30 UTC = 08:30 in Boston, i.e. past an 08:00 send hour.
+  const afterSend = new Date("2026-08-05T12:30:00Z");
+  const next = nextWeekdayAt(afterSend, "America/New_York", DIGEST_WEEKDAY, 8);
+  assert.equal(next.toISOString(), "2026-08-12T12:00:00.000Z");
 
-  // Earlier the same Friday, it should still be today.
-  const fridayPreDawn = new Date("2026-08-07T09:00:00Z"); // 05:00 local
+  // Earlier the same Wednesday, it should still be today.
+  const preDawn = new Date("2026-08-05T09:00:00Z"); // 05:00 local
   assert.equal(
-    nextWeekdayAt(fridayPreDawn, "America/New_York", 5, 8).toISOString(),
-    "2026-08-07T12:00:00.000Z",
+    nextWeekdayAt(preDawn, "America/New_York", DIGEST_WEEKDAY, 8).toISOString(),
+    "2026-08-05T12:00:00.000Z",
   );
 });
 
