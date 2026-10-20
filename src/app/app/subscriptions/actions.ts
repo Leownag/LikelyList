@@ -210,6 +210,9 @@ export async function saveSelections(input: {
  */
 const MAX_FOLLOWED_PLACES = 10;
 
+/** Exported so the control can show the ceiling instead of only hitting it. */
+export const FOLLOWED_PLACE_LIMIT = MAX_FOLLOWED_PLACES;
+
 /**
  * Follow any US place, by its Census GEOID.
  *
