@@ -149,7 +149,10 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
               <button
                 type="button"
                 onClick={() => remove(place.id)}
-                className="text-faint hover:text-danger"
+                // Padded: the hit area used to be the glyph itself, roughly
+                // 8x16px, which is below any pointer-target guidance and
+                // unusable on a phone.
+                className="-my-1 px-1.5 py-1 text-faint hover:text-danger"
                 aria-label={`Stop following ${label(place)}`}
                 title={`Stop following ${label(place)}`}
               >
