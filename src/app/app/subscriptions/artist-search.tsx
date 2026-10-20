@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Input, Label, Notice } from "@/components/ui";
 import { followArtist } from "./actions";
+import { normalizeName } from "@/lib/normalize";
 
 type Candidate = {
   tmAttractionId: string | null;
@@ -26,7 +27,11 @@ const DEBOUNCE_MS = 350;
  * Every request costs Ticketmaster quota, so the search is debounced and only runs
  * from two characters up (their `keyword` does not match partial words anyway).
  */
-export function ArtistSearch() {
+export function ArtistSearch({ following = [] }: { following?: string[] }) {
+  // Matched on the normalised name, which is what a follow is matched on when a
+  // lineup is scored — so "Radiohead" and "radiohead" are the same answer here
+  // for the same reason they are the same answer there.
+  const alreadyFollowing = new Set(following.map(normalizeName));
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -151,14 +156,23 @@ export function ArtistSearch() {
               className="flex items-center justify-between gap-3 px-3 py-2"
             >
               <span className="text-sm text-text">{candidate.name}</span>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => follow(candidate)}
-                className="shrink-0 border border-border-strong px-2.5 py-1 text-xs text-muted hover:border-accent hover:text-text disabled:opacity-50"
-              >
-                Follow
-              </button>
+              {/* A result you already follow offered the same "Follow" button as
+                  one you do not, so the only way to find out was to press it. */}
+              {alreadyFollowing.has(normalizeName(candidate.name)) ||
+              added.includes(candidate.name) ? (
+                <span className="shrink-0 border border-accent/40 px-2.5 py-1 text-xs text-accent">
+                  Following
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => follow(candidate)}
+                  className="shrink-0 border border-border-strong px-2.5 py-1 text-xs text-muted hover:border-accent hover:text-text disabled:opacity-50"
+                >
+                  Follow
+                </button>
+              )}
             </li>
           ))}
         </ul>

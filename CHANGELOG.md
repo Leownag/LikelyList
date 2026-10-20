@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.4 — 2026-10-20
+
+- **Everyone who signed in was in Eastern.** `profiles.timezone` defaults to
+  America/New_York and the row is created by a trigger on `auth.users`, which
+  cannot know where the reader is. Only the subscribe box sent a detected zone.
+  A reader in Seattle got their "Wednesday 8am" email at 5am. A profile that is
+  minutes old and still on the default now adopts the browser's zone; an older
+  one is offered the swap in Settings rather than having it taken.
+- **Explore no longer server-renders a guessed city.** It rendered the default
+  slug and swapped to the real guess after hydration, so the HTML, the
+  accessibility tree and the screen disagreed on first load — and a search
+  clicked in that window returned the wrong city's week.
+- The landing form showed eight genres of twenty-two under copy claiming that
+  was what the email filters on.
+- A search result you already follow says Following.
+- Spotify's three numbers — fifty asked for, forty-four returned, twenty-four
+  displayed — now say which is which.
+- "Or build it now" had no preceding alternative; "labels everyone else same
+  bill" was missing a word; "favourite" in a US product.
+
 ## 1.1.3 — 2026-10-20
 
 Testing, shaped by what got through. Each layer covers something the others

@@ -233,7 +233,7 @@ export default async function SubscriptionsPage({
                 <SpotifyCard state={spotify} />
               </div>
             ) : null}
-            <ArtistSearch />
+            <ArtistSearch following={artists.map((artist) => artist.name)} />
           </>
         }
       />
