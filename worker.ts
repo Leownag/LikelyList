@@ -11,7 +11,7 @@
  * bundled twice.
  *
  * Cron triggers, configured in wrangler.jsonc:
- *   "0 19 * * 2"    build the week's run and enqueue one job per subscriber
+ *   "0 8 * * 3"     build the week's run and enqueue one job per subscriber
  *   "*\/5 * * * *"  drain the queue, releasing each job when its recipient's
  *                   local Wednesday morning arrives
  *
@@ -26,7 +26,7 @@ import { default as handler } from "./.open-next/worker.js";
 /** Only the bindings these handlers themselves touch. */
 type WorkerEnv = { CRON_SECRET?: string };
 
-const WEEKLY_CRON = "0 19 * * 2";
+const WEEKLY_CRON = "0 8 * * 3";
 
 /**
  * Minimal shape of an inbound message. Declared locally rather than importing

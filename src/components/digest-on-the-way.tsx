@@ -45,7 +45,9 @@ export function DigestOnTheWay({
           </Notice>
         </div>
       ) : (
-        <p className="mt-2 pl-[14px] font-mono text-base">{nextSendLabel}</p>
+        <p className="mt-2 pl-[14px] font-mono text-base">
+          {t("overview.next.value", { when: nextSendLabel })}
+        </p>
       )}
 
       <div className="mt-5 flex flex-wrap items-center gap-3">

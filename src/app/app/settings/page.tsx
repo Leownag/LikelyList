@@ -4,7 +4,9 @@ import {
   DIGEST_SEND_HOURS,
   DIGEST_WEEKDAY,
   TIMEZONES,
+  TIMEZONE_LABELS,
   morningSendHour,
+  supportedTimezone,
   nextWeekdayAt,
 } from "@/lib/time";
 import { deleteAccount, updateSchedule } from "./actions";
@@ -25,13 +27,9 @@ export default async function SettingsPage() {
   // to its first option on a profile whose stored hour predates the morning
   // window and then silently save that instead.
   const sendHour = morningSendHour(profile.digest_send_hour);
+  const timezone = supportedTimezone(profile.timezone);
 
-  const nextSend = nextWeekdayAt(
-    new Date(),
-    profile.timezone,
-    DIGEST_WEEKDAY,
-    sendHour,
-  );
+  const nextSend = nextWeekdayAt(new Date(), timezone, DIGEST_WEEKDAY, sendHour);
 
   return (
     <div className="space-y-10">
@@ -48,7 +46,7 @@ export default async function SettingsPage() {
             footer={
               <p className="text-xs text-faint">
                 {t("settings.next", {
-                  when: formatNext(nextSend, profile.timezone, locale),
+                  when: formatNext(nextSend, timezone, locale),
                 })}
               </p>
             }
@@ -59,11 +57,11 @@ export default async function SettingsPage() {
                 <Select
                   id="timezone"
                   name="timezone"
-                  defaultValue={profile.timezone}
+                  defaultValue={timezone}
                 >
                   {TIMEZONES.map((zone) => (
                     <option key={zone} value={zone}>
-                      {zone.replace(/_/g, " ")}
+                      {TIMEZONE_LABELS[zone]}
                     </option>
                   ))}
                 </Select>
@@ -142,7 +140,8 @@ function formatNext(at: Date, timezone: string, locale: Locale): string {
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit",
+    // No minutes: Cloudflare spreads a trigger across its hour, which the
+    // drift notice below this form says outright.
     timeZoneName: "short",
   }).format(at);
 }

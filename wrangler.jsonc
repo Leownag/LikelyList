@@ -43,14 +43,15 @@
       // delivery at a sane local hour and sidesteps DST (cron expressions are
       // always UTC).
       //
-      // Tuesday 19:00 UTC, which is not an arbitrary hour. Everyone is sent on
+      // Wednesday 08:00 UTC, which is not an arbitrary hour. Everyone is sent on
       // their own local Wednesday morning, and that span is bounded by the
-      // supported zones: Tokyo (UTC+9) at 06:00 is Tuesday 21:00 UTC, Honolulu
-      // (UTC-10) at 11:00 is Wednesday 21:00 UTC. Building two hours before the
-      // earliest send leaves margin for the hour Cloudflare spreads a trigger
-      // across, and the last send still lands 26 hours later — inside the
-      // 36-hour event cache TTL the whole run reads from.
-      "0 19 * * 2",
+      // supported zones — all of which are now US, so all of it happens inside
+      // one UTC day: New York (UTC-4) at 06:00 is 10:00 UTC, Honolulu (UTC-10)
+      // at 11:00 is 21:00 UTC. Building two hours before the earliest send
+      // leaves margin for the hour Cloudflare spreads a trigger across, and the
+      // last send lands 13 hours later — well inside the 36-hour event cache
+      // TTL the whole run reads from.
+      "0 8 * * 3",
 
       // Queue drainer. Sends the queued jobs in small batches whose local time
       // has come, and purges expired event cache rows. Runs every 5 minutes so

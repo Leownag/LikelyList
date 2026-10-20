@@ -133,7 +133,9 @@ export default async function OverviewPage() {
         <div className="flex items-start justify-between gap-6">
           <div>
             <p className="label-pixel">{t("overview.next.label")}</p>
-            <p className="mt-2 font-mono text-lg">{nextSendLabel}</p>
+            <p className="mt-2 font-mono text-lg">
+              {t("overview.next.value", { when: nextSendLabel })}
+            </p>
             <p className="mt-2 max-w-md text-sm text-muted">
               {t("overview.next.body")}
             </p>
