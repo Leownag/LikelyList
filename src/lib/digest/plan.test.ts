@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { dedupeByEventId, safeSendInstant } from "./plan";
 import type { TmEvent } from "@/lib/ticketmaster/types";
 
-// Tuesday 19:00 UTC: the weekly builder firing.
-const NOW = new Date("2026-08-04T19:00:00Z");
+// Wednesday 08:00 UTC: the weekly builder firing.
+const NOW = new Date("2026-08-05T08:00:00Z");
 
 test("a normal subscriber gets their own local morning", () => {
   const warnings: string[] = [];
@@ -52,14 +52,16 @@ test("one bad subscriber does not affect the others in the same pass", () => {
   const subscribers = [
     { id: "good-1", timezone: "America/New_York", digest_send_hour: 8 },
     { id: "bad", timezone: "not-a-zone", digest_send_hour: 8 },
-    { id: "good-2", timezone: "Asia/Taipei", digest_send_hour: 8 },
+    { id: "good-2", timezone: "Pacific/Honolulu", digest_send_hour: 8 },
   ];
 
   const results = subscribers.map((s) => safeSendInstant(NOW, s, warnings));
 
   assert.equal(results.length, 3);
   assert.equal(results[0], "2026-08-05T12:00:00.000Z");
-  assert.equal(results[2], "2026-08-05T00:00:00.000Z");
+  // Honolulu is still on Tuesday night when the run is built, so its Wednesday
+  // 08:00 is ten hours out.
+  assert.equal(results[2], "2026-08-05T18:00:00.000Z");
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /^bad:/);
 });
