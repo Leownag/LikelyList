@@ -89,6 +89,23 @@ async function settled(page: Page) {
  * A server action is a POST to the current URL, not a navigation, so waiting on load
  * state returns immediately and the next `goto` can outrun the write.
  */
+/**
+ * Sets a checkbox and makes sure it stayed set.
+ *
+ * These controls are server-rendered and hydrate a moment later. A click that
+ * lands in between is undone when React reconciles the uncontrolled input, and
+ * Playwright reports it as "clicking the checkbox did not change its state".
+ * A real reader hits the same window — they see it bounce back and click again.
+ */
+async function setChecked(page: Page, locator: Locator, value: boolean) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if ((await locator.isChecked()) === value) return;
+    await locator.click();
+    await page.waitForTimeout(150);
+  }
+  throw new Error(`the checkbox would not stay ${value ? "checked" : "unchecked"}`);
+}
+
 async function submit(page: Page, button: Locator) {
   await Promise.all([
     page.waitForResponse(
@@ -167,6 +184,24 @@ async function main() {
       assert(heading.length > 0, "no h1 text");
       await shot(page, "landing");
       return heading.replace(/\s+/g, " ").slice(0, 40);
+    });
+
+    await check("the landing form can reach every genre", async () => {
+      // It showed eight, under copy saying "this is what the email filters on",
+      // with no way to the rest. Ticking all eight read as choosing everything
+      // and subscribed to eight of twenty-one.
+      const chips = page.locator("form button[aria-pressed]");
+      const before = await chips.count();
+      const more = page.getByRole("button", { name: /^Show \d+ more$/ });
+
+      if ((await more.count()) === 0) {
+        return `skip: only ${before} genres seeded, nothing hidden`;
+      }
+      const label = await more.innerText();
+      await more.click();
+      const after = await chips.count();
+      assert(after > before, `"${label}" revealed nothing (${before} → ${after})`);
+      return `${before} → ${after}`;
     });
 
     await check("landing → Explore link", async () => {
@@ -442,6 +477,76 @@ async function main() {
     watch(authed);
     const app = await authed.newPage();
 
+    await check("a new account takes the timezone its browser reports", async () => {
+      // profiles.timezone comes from a column default, set by a trigger on
+      // auth.users that cannot know where the reader is. Every account made by
+      // signing in was therefore Eastern — a 5am email for anyone on the west
+      // coast, and nothing said so.
+      //
+      // Three behaviours, because the dangerous one is the third: a stored
+      // Eastern is a real setting once the account is not brand new, and must
+      // not be overwritten.
+      const cases: [string, string, boolean, string][] = [
+        ["new, Pacific browser", "America/Los_Angeles", false, "America/Los_Angeles"],
+        ["new, Eastern browser", "America/New_York", false, "America/New_York"],
+        ["month-old, Pacific browser", "America/Los_Angeles", true, "America/New_York"],
+      ];
+      const seen: string[] = [];
+
+      for (const [label, zone, aged, expected] of cases) {
+        const email = `ui-test-tz-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@likelylist.test`;
+        const { data: made, error: madeError } = await admin.auth.admin.createUser({
+          email,
+          email_confirm: true,
+        });
+        assert(!madeError && made.user, `could not create ${label}: ${madeError?.message}`);
+        const id = made.user.id;
+
+        try {
+          if (aged) {
+            await admin
+              .from("profiles")
+              .update({ created_at: new Date(Date.now() - 30 * 86_400_000).toISOString() })
+              .eq("id", id);
+          }
+
+          const { data: link } = await admin.auth.admin.generateLink({
+            type: "magiclink",
+            email,
+          });
+          const context = await browser.newContext({ timezoneId: zone });
+          try {
+            const tzPage = await context.newPage();
+            await go(
+              tzPage,
+              `/auth/callback?token_hash=${link!.properties!.hashed_token}&type=magiclink`,
+            );
+            await tzPage.waitForURL(`${BASE}/app`, { timeout: 30_000 });
+            // The adoption is a server action fired from an effect, so it lands
+            // just after the render rather than during it.
+            await tzPage.waitForTimeout(3_500);
+          } finally {
+            await context.close();
+          }
+
+          const { data: row } = await admin
+            .from("profiles")
+            .select("timezone")
+            .eq("id", id)
+            .single<{ timezone: string }>();
+          assert(
+            row?.timezone === expected,
+            `${label}: expected ${expected}, stored ${row?.timezone}`,
+          );
+          seen.push(`${label} → ${row?.timezone}`);
+        } finally {
+          await admin.auth.admin.deleteUser(id).catch(() => {});
+        }
+      }
+
+      return seen.join(" · ");
+    });
+
     await check("a valid sign-in link lands on /app", async () => {
       await signIn(app);
       await app.waitForURL(`${BASE}/app`, { timeout: 30_000 });
@@ -632,6 +737,31 @@ async function main() {
       return "off, and still listed";
     });
 
+    await check("an artist you already follow says so", async () => {
+      // The search offered the same "Follow" button whether or not you already
+      // followed the result, so the only way to find out was to press it.
+      await go(app, "/app/subscriptions#artists");
+      const field = app.locator("#artist-search");
+      await field.click();
+      await field.fill("Radiohead");
+      const row = app.locator("li", { hasText: /Radiohead/i }).first();
+      await row.waitFor({ timeout: 30_000 });
+
+      const follow = row.getByRole("button", { name: /^Follow$/ });
+      if ((await follow.count()) === 0) return "skip: no followable result";
+      await follow.click();
+      await app.getByText(/Now following/i).waitFor({ timeout: 30_000 });
+
+      // Reload: the state has to survive, not just be remembered in this render.
+      await go(app, "/app/subscriptions#artists");
+      await field.click();
+      await field.fill("Radiohead");
+      const again = app.locator("li", { hasText: /Radiohead/i }).first();
+      await again.waitFor({ timeout: 30_000 });
+      await again.getByText(/^Following$/).waitFor({ timeout: 15_000 });
+      return "Following, after a reload";
+    });
+
     await check("select all turns every artist back on", async () => {
       const selectAll = app.locator("#artists").getByRole("button", { name: "Select all" });
       await selectAll.click();
@@ -715,8 +845,11 @@ async function main() {
       await go(app, "/");
       const stillWaiting = app.getByText(/ready again in/i);
       await stillWaiting.waitFor({ timeout: 10_000 });
+      // Matches both labels: the overview says "Build it now", the landing page
+      // says "Build one now". They share one server-side cooldown, which is the
+      // thing being asserted.
       assert(
-        await app.getByRole("button", { name: /build it now/i }).isDisabled(),
+        await app.getByRole("button", { name: /^Build (it|one) now$/i }).isDisabled(),
         "the cooldown was forgotten across a reload",
       );
       return await stillWaiting.innerText();
@@ -784,16 +917,23 @@ async function main() {
     });
 
     await check("pausing the digest shows the warning on the overview", async () => {
+      // Waits for the confirmation rather than a POST response, for the same
+      // reason the schedule check does: the write is done when the form says so.
       await go(app, "/app/settings");
-      const toggle = app.locator("input[name=digest_enabled]");
-      await toggle.uncheck();
-      await submit(app, app.getByRole("button", { name: "Save", exact: true }));
+      await setChecked(app, app.locator("input[name=digest_enabled]"), false);
+      await app.getByRole("button", { name: "Save", exact: true }).click();
+      await app.getByText(/^Saved\.$|^已儲存。$/).waitFor({ timeout: 30_000 });
+
       await go(app, "/app");
       const text = await app.locator("main").innerText();
       assert(/pause|paused|暫停/i.test(text), "no paused notice after disabling the digest");
+
       await go(app, "/app/settings");
-      await app.locator("input[name=digest_enabled]").check();
-      await submit(app, app.getByRole("button", { name: "Save", exact: true }));
+      await setChecked(app, app.locator("input[name=digest_enabled]"), true);
+      await app.getByRole("button", { name: "Save", exact: true }).click();
+      await app.getByText(/^Saved\.$|^已儲存。$/).waitFor({ timeout: 30_000 });
+
+      await go(app, "/app/settings");
       assert(
         await app.locator("input[name=digest_enabled]").isChecked(),
         "the digest did not come back on",
