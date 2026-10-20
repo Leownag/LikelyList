@@ -548,7 +548,10 @@ async function main() {
       await go(app, "/app/settings");
       const hour = app.locator("#digest_send_hour");
       const before = await hour.inputValue();
-      const target = before === "9" ? "18" : "9";
+      // Both must be inside DIGEST_SEND_HOURS (06:00-11:00). This used to
+      // reach for "18", which stopped being an option when the picker was
+      // narrowed to the morning.
+      const target = before === "9" ? "10" : "9";
       await hour.selectOption(target);
       await submit(app, app.getByRole("button", { name: "Save", exact: true }));
       await go(app, "/app/settings");
