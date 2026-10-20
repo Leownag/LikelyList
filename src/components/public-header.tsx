@@ -43,7 +43,10 @@ export function PublicHeader({
         )}
         {signedIn === undefined ? null : signedIn ? (
           <ButtonLink href="/app" variant="ghost">
-            {t("nav.feed")}
+            {/* Labelled for where it actually goes. It said nav.feed ("My feed")
+                while pointing at the overview, so the one link a signed-in reader
+                sees on a public page named a different page than it opened. */}
+            {t("nav.overview")}
           </ButtonLink>
         ) : (
           <ButtonLink href="/login" variant="ghost">
