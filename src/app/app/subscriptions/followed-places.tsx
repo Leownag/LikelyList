@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button, Card, Label, Notice, StatusLine } from "@/components/ui";
 import { CityTypeahead } from "@/components/city-typeahead";
 import { placeLabel } from "@/lib/places";
-import { FOLLOWED_PLACE_LIMIT, followPlace, unfollowPlace } from "./actions";
+import { followPlace, unfollowPlace } from "./actions";
+import { FOLLOWED_PLACE_LIMIT } from "@/lib/limits";
 import type { PlaceSuggestion } from "@/lib/explore/types";
 
 export type FollowedPlace = {

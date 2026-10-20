@@ -10,6 +10,7 @@ import { EXPLICIT_ARTIST_SCORE, OPTED_OUT_SCORE } from "@/lib/artist-score";
 import type { City } from "@/lib/db";
 import { readEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { FOLLOWED_PLACE_LIMIT } from "@/lib/limits";
 
 /**
  * Subscription and preference mutations.
@@ -208,10 +209,7 @@ export async function saveSelections(input: {
  * curated grid is bounded by being a list of 43; this path is open to 32,329 places
  * and needs its own ceiling.
  */
-const MAX_FOLLOWED_PLACES = 10;
-
-/** Exported so the control can show the ceiling instead of only hitting it. */
-export const FOLLOWED_PLACE_LIMIT = MAX_FOLLOWED_PLACES;
+const MAX_FOLLOWED_PLACES = FOLLOWED_PLACE_LIMIT;
 
 /**
  * Follow any US place, by its Census GEOID.

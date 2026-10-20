@@ -17,7 +17,14 @@ export default async function AppLoading() {
   const t = await getT();
 
   return (
-    <div className="space-y-10" role="status" aria-label={t("shell.loading")}>
+    <div
+      className="space-y-10"
+      role="status"
+      aria-label={t("shell.loading")}
+      // A stable hook for the UI walk, which otherwise reads this skeleton and
+      // believes it is the page. Same convention as data-empty elsewhere.
+      data-loading="app"
+    >
       <section className="animate-pulse">
         <div className="mb-4">
           <div className="h-5 w-40 bg-surface-raised" />
