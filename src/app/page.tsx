@@ -21,6 +21,8 @@ import { siteUrlFromEnv, localePath, localeAlternates } from "@/lib/site-url";
 import { getLocale } from "@/lib/i18n/server";
 import { isEnabledLocale, LOCALE_HTML_LANG, type Locale } from "@/lib/i18n/locales";
 import { translator } from "@/lib/i18n/messages";
+import { cookies } from "next/headers";
+import { DEV_MODE_COOKIE, isDevMode } from "@/lib/dev-mode";
 
 /**
  * Rendered per request, not prerendered.
@@ -191,6 +193,13 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   // that anything happened.
   const justDeleted = (await searchParams).deleted === "1";
 
+  // Operator-facing byte sizes in the build panel, off unless dev mode is on
+  // for this browser.
+  const diagnostics = await isDevMode({
+    cookieValue: (await cookies()).get(DEV_MODE_COOKIE)?.value,
+    secret: readEnv().cronSecret,
+  });
+
   // Second round-trip, and only for the minority who are signed in: the schedule is the
   // whole point of what they get shown instead of the subscribe box, and it cannot be
   // asked for until getUser() has said who they are.
@@ -247,6 +256,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
               <DigestOnTheWay
                 nextSendLabel={nextDigestLabel(profile, locale)}
                 paused={!profile.digest_enabled}
+                diagnostics={diagnostics}
               />
             </div>
           ) : /* Both lists are required: the box asks for a city and at least one

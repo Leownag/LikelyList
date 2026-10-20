@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Subscribing is not configured on this server yet (needs SUPABASE_SERVICE_ROLE_KEY and RESEND_API_KEY).",
+          "Subscribing is not available right now. Nothing was sent — please try again later.",
       },
       { status: 503 },
     );

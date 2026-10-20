@@ -86,7 +86,7 @@
   "feed.hint": "{window} —— 使用和週三的信相同的評分方式，所以現在寄出時會顯示的內容就是這些。",
   "feed.hint.relevance": "最符合的在前。",
   "feed.hint.dateOrder": "依日期排序 —— 追蹤一些歌手後，最符合的會排到前面。",
-  "feed.unconfigured": "清單需要 service role key，但這個部署尚未設定。",
+  "feed.unconfigured": "這週的清單目前無法顯示。你的訂閱不受影響 —— 每週的信還是會寄出。",
   "feed.empty.title": "本週沒有演出",
   "feed.empty.noCity": "你還沒追蹤任何城市 —— 這是清單無法猜到的唯一一項。",
   "feed.empty.noMatch": "沒有列出的演出符合你的類型或歌手。演出資訊會在每週的排程更新，因此剛建立的帳號在那之前可能會是空的。",

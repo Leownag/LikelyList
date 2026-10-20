@@ -595,7 +595,35 @@ async function main() {
       await shot(app, "landing-signed-in");
     });
 
+    await check("sending a real email takes a second click", async () => {
+      // "Build it now" renders a preview; "Email it to me" puts a real message
+      // in a real inbox. They were the same size and the same variant, side by
+      // side, with nothing to tell them apart.
+      //
+      // (The byte-size panel is gated on dev mode, which cannot be exercised
+      // here: isDevMode returns true unconditionally outside production, by
+      // design, and this walk drives a dev server.)
+      await go(app, "/app");
+      const send = app.getByRole("button", { name: /^Email it to me$/i });
+      await send.click();
+      const confirm = app.getByRole("button", { name: /Yes, send it now/i });
+      await confirm.waitFor({ timeout: 10_000 });
+      assert(
+        await app.getByText(/sends a real email/i).isVisible(),
+        "the confirm step did not say what it was about to do",
+      );
+      await app.getByRole("button", { name: /^Cancel$/ }).click();
+      await send.waitFor({ timeout: 10_000 });
+      return "confirm step shown, then cancelled";
+    });
+
     await check("build it now runs once, then holds the door for three minutes", async () => {
+      // Dev mode on, so the byte-size panel this check reads is rendered at all.
+      const secret = process.env.CRON_SECRET;
+      assert(secret, "CRON_SECRET is needed to turn dev mode on");
+      await go(app, `/dev-mode?key=${encodeURIComponent(secret)}`);
+      await go(app, "/app");
+
       const build = app.getByRole("button", { name: /build it now/i });
       await build.click();
       // A real build: queries the event cache and renders the whole email.

@@ -86,7 +86,7 @@
   "feed.hint": "{window} — the same scoring the Wednesday email uses, so this is what it would say if it went out now.",
   "feed.hint.relevance": "Best matches first.",
   "feed.hint.dateOrder": "In date order — follow some artists and the best matches rise to the top.",
-  "feed.unconfigured": "The feed needs the service role key, which is not configured on this deployment.",
+  "feed.unconfigured": "This week’s list is unavailable right now. Your subscription is unaffected — the weekly email still goes out.",
   "feed.empty.title": "nothing this week",
   "feed.empty.noCity": "You haven't followed a city yet — that is the one thing the feed cannot guess.",
   "feed.empty.noMatch": "No listed shows matched your genres or artists. Listings are refreshed by the weekly run, so a brand-new account can look empty until then.",
