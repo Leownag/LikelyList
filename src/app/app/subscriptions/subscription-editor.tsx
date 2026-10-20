@@ -159,11 +159,16 @@ export function SubscriptionEditor({
     }
   }
 
-  function discardAndLeave() {
+  // Discards in place rather than navigating. It used to also push to /app,
+  // so a button labelled "Back without saving" both threw away the edits and
+  // moved the reader to a different page — only one of which the label named,
+  // and the page it chose was not the one they came from.
+  function discard() {
     setCityIds(new Set(savedCities));
     setGenreIds(new Set(savedGenres));
     setArtistIntent(new Map());
-    router.push("/app");
+    setSaved(false);
+    setError(null);
   }
 
   const genreItems = genres.map((genre) => ({
@@ -268,8 +273,8 @@ export function SubscriptionEditor({
           <Button onClick={save} disabled={busy || !dirty}>
             {busy ? "Saving…" : "Save changes"}
           </Button>
-          <Button variant="ghost" onClick={discardAndLeave} disabled={busy}>
-            Back without saving
+          <Button variant="ghost" onClick={discard} disabled={busy || !dirty}>
+            Discard changes
           </Button>
 
           <span className="text-xs text-faint">
