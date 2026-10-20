@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.2 — 2026-10-20
+
+Two of these are regressions from 1.1.0, found by a pass over the deployed site.
+
+- **"Build it now" was a dead end.** Gating the summary panel on dev mode hid
+  the byte sizes it was meant to hide and, in the same block, the result, the
+  error and the link to read the digest. In production that left a button that
+  locked itself for three minutes and said nothing. The panel is split along the
+  line that matters, and an empty week now explains itself.
+- **Explore under-reported its own window.** Reading the header back off the
+  returned rows fixed one disagreement and created another: results are
+  date-ordered and capped at one page, so the header shrank below the seven days
+  the copy promises. It now states the full window and says when the page ran
+  out.
+- The Friday sweep missed `supabase/email-templates`, so the sign-in email still
+  offered to "stop the Friday email".
+- "Back without saving" discarded *and* navigated; it discards in place now.
+- The feed's empty state blamed a brand-new account regardless of the account.
+
 ## 1.1.1 — 2026-10-20
 
 Migration `0017` installs pg_trgm into `extensions` rather than `public`.

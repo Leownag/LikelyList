@@ -68,7 +68,9 @@ export function DigestOnTheWay({
         ) : null}
       </div>
 
-      {summary && diagnostics ? <DigestSummaryPanel summary={summary} /> : null}
+      {summary ? (
+        <DigestSummaryPanel summary={summary} diagnostics={diagnostics} />
+      ) : null}
     </div>
   );
 }

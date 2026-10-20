@@ -95,42 +95,59 @@ export function useDigestBuild() {
 /**
  * What a build actually produced.
  *
+ * Split in two, and the split matters. Everything a reader needs — an error, how
+ * many shows were found, the link to read the thing — renders always. The
+ * operator metrics render only with `diagnostics`.
+ *
+ * It used to be one block behind a single flag, which in production meant
+ * pressing "Build it now" produced no preview, no result and no error: just a
+ * button that locked itself for three minutes. Hiding the byte size had hidden
+ * the answer along with it.
+ *
  * Deliberately English, like the digest email and the web preview it describes: the
  * values are an English subject line and US city names, so translating the labels
  * around them would make the panel read as half-done rather than translated.
  */
-export function DigestSummaryPanel({ summary }: { summary: DigestSummary }) {
+export function DigestSummaryPanel({
+  summary,
+  diagnostics = false,
+}: {
+  summary: DigestSummary;
+  /** Byte sizes, the subject line, the raw city list. Operator-facing. */
+  diagnostics?: boolean;
+}) {
+  const built = Boolean(summary.subject);
+  const count = summary.eventCount ?? 0;
+
   return (
     <div className="mt-4 space-y-3">
       {summary.error ? <Notice tone="error">{summary.error}</Notice> : null}
-      {summary.senderWarning ? (
+      {summary.senderWarning && diagnostics ? (
         <Notice tone="warn">{summary.senderWarning}</Notice>
       ) : null}
 
-      {summary.subject ? (
+      {built ? (
         <div className="border border-border bg-surface-raised p-4 text-sm">
-          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-            <Row label="subject" value={summary.subject} />
-            <Row label="window" value={summary.window ?? "—"} />
-            <Row label="matches" value={`${summary.eventCount ?? 0} show(s)`} />
-            <Row
-              label="cities"
-              value={summary.cities?.join(", ") || "none followed"}
-            />
-            <Row
-              label="email size"
-              value={`${((summary.bytes ?? 0) / 1024).toFixed(1)} KB${
-                summary.withinGmailLimit
-                  ? " · under Gmail's clip limit"
-                  : " · OVER Gmail's clip limit"
-              }`}
-              tone={summary.withinGmailLimit ? "ok" : "bad"}
-            />
-            <Row
-              label="delivered"
-              value={summary.sent ? "yes, check your inbox" : "not sent"}
-            />
-          </dl>
+          {/* The answer, in a sentence, before any table. An empty week is a
+              real outcome and used to render as an empty panel. */}
+          <p className="text-text">
+            {count === 0
+              ? "Built, and there is nothing on for your week yet."
+              : `Built — ${count} show${count === 1 ? "" : "s"} for your week.`}
+          </p>
+
+          {count === 0 ? (
+            <p className="mt-2 text-xs text-muted">
+              Listings are refreshed by the weekly run, so this can be empty
+              between runs even when your filters are right.
+            </p>
+          ) : null}
+
+          <p className="mt-2 text-xs text-muted">
+            {summary.sent
+              ? "Emailed to you — check your inbox."
+              : "Not emailed. This was a preview."}
+          </p>
 
           {summary.previewUrl ? (
             <a
@@ -141,6 +158,26 @@ export function DigestSummaryPanel({ summary }: { summary: DigestSummary }) {
             >
               Open the web version
             </a>
+          ) : null}
+
+          {diagnostics ? (
+            <dl className="mt-4 grid gap-x-6 gap-y-2 border-t border-border pt-4 sm:grid-cols-2">
+              <Row label="subject" value={summary.subject!} />
+              <Row label="window" value={summary.window ?? "—"} />
+              <Row
+                label="cities"
+                value={summary.cities?.join(", ") || "none followed"}
+              />
+              <Row
+                label="email size"
+                value={`${((summary.bytes ?? 0) / 1024).toFixed(1)} KB${
+                  summary.withinGmailLimit
+                    ? " · under Gmail's clip limit"
+                    : " · OVER Gmail's clip limit"
+                }`}
+                tone={summary.withinGmailLimit ? "ok" : "bad"}
+              />
+            </dl>
           ) : null}
         </div>
       ) : null}

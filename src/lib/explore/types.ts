@@ -57,6 +57,15 @@ export type ExploreResponse = {
   placeLabel: string | null;
   /** The radius used, so the UI can offer to widen or narrow it. */
   radiusMiles: number | null;
+  /**
+   * Ticketmaster filled the one page we ask for, so the later days of the
+   * window are probably incomplete.
+   *
+   * Worth saying out loud: results are date-ordered, so a busy city runs out of
+   * page before it runs out of week, and the list silently stops short of the
+   * seven days the page promises.
+   */
+  truncated: boolean;
 };
 
 /** Offered by the advanced control. Fifty is the default. */
