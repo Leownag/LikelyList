@@ -674,23 +674,6 @@ async function main() {
       return `${cityName} + ${genreName}`;
     });
 
-    await check("the schedule survives a save and a reload", async () => {
-      await go(app, "/app/settings");
-      const hour = app.locator("#digest_send_hour");
-      const before = await hour.inputValue();
-      // Both must be inside DIGEST_SEND_HOURS (06:00-11:00). This used to
-      // reach for "18", which stopped being an option when the picker was
-      // narrowed to the morning.
-      const target = before === "9" ? "10" : "9";
-      await hour.selectOption(target);
-      await submit(app, app.getByRole("button", { name: "Save", exact: true }));
-      await go(app, "/app/settings");
-      const after = await app.locator("#digest_send_hour").inputValue();
-      assert(after === target, `expected hour ${target}, found ${after}`);
-      await shot(app, "settings-saved");
-      return `${before} → ${after}`;
-    });
-
     await check("the app nav says which section you are in", async () => {
       await go(app, "/app/pinned");
       const current = app.locator('nav a[aria-current="page"]');
@@ -700,16 +683,30 @@ async function main() {
       return label;
     });
 
-    await check("saving the schedule says so", async () => {
-      // It was a bare server-action form: a full round trip that re-rendered the
-      // same values and told the reader nothing.
+    await check("saving the schedule confirms, and survives a reload", async () => {
+      // Two things this used to be two checks for: the form was a bare server
+      // action that re-rendered the same values and said nothing, and the
+      // persistence check waited on `submit()` — a POST response — which is not
+      // the same instant as React finishing with the form. Against a production
+      // build, where hydration is slower, that raced and the selection was lost.
+      //
+      // Waiting for the confirmation the reader waits for removes the race and
+      // covers both. (Progressive enhancement is intact either way: the form
+      // saves with JavaScript disabled, verified against the live database.)
       await go(app, "/app/settings");
       const hour = app.locator("#digest_send_hour");
       const before = await hour.inputValue();
-      await hour.selectOption(before === "9" ? "10" : "9");
+      const target = before === "9" ? "10" : "9";
+
+      await hour.selectOption(target);
       await app.getByRole("button", { name: "Save", exact: true }).click();
       await app.getByText(/^Saved\.$|^已儲存。$/).waitFor({ timeout: 30_000 });
       await shot(app, "settings-confirmation");
+
+      await go(app, "/app/settings");
+      const after = await app.locator("#digest_send_hour").inputValue();
+      assert(after === target, `expected hour ${target} after a reload, found ${after}`);
+      return `${before} → ${after}`;
     });
 
     await check("pausing the digest shows the warning on the overview", async () => {
