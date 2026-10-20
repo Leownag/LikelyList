@@ -71,6 +71,7 @@ export function AnonymousSubscribe({
   const [genreIds, setGenreIds] = useState<Set<number>>(
     () => new Set(preset?.genreIds ?? []),
   );
+  const [showAllGenres, setShowAllGenres] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -150,7 +151,13 @@ export function AnonymousSubscribe({
     );
   }
 
-  const topGenres = genres.slice(0, 8);
+  // Eight keeps the form short enough to read in one glance, but it used to be
+  // all a visitor could see or pick — under copy claiming it was "what the email
+  // filters on". Somebody who ticked all eight believed they had chosen
+  // everything and subscribed to eight genres out of twenty-one.
+  const COLLAPSED = 8;
+  const visibleGenres = showAllGenres ? genres : genres.slice(0, COLLAPSED);
+  const hiddenCount = genres.length - visibleGenres.length;
 
   return (
     // Semi-transparent so the pixel mosaic behind it shows through, with a blur so
@@ -210,13 +217,13 @@ export function AnonymousSubscribe({
         </div>
       )}
 
-      {!preset && topGenres.length > 0 ? (
+      {!preset && visibleGenres.length > 0 ? (
         <div className="mt-4">
           <p className="text-xs text-faint">
             Pick at least one — this is what the email filters on:
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {topGenres.map((genre) => {
+            {visibleGenres.map((genre) => {
               const active = genreIds.has(genre.id);
               return (
                 <button
@@ -242,6 +249,16 @@ export function AnonymousSubscribe({
               );
             })}
           </div>
+
+          {hiddenCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllGenres(true)}
+              className="mt-2 text-xs text-accent underline"
+            >
+              {`Show ${hiddenCount} more`}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

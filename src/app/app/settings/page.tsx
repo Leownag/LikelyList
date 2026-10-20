@@ -11,6 +11,7 @@ import {
 } from "@/lib/time";
 import { deleteAccount, updateSchedule } from "./actions";
 import { DeliveryForm } from "./delivery-form";
+import { OfferDetectedTimezone } from "../detected-timezone";
 import { DeleteAccount } from "./delete-account";
 import { getI18n, getT } from "@/lib/i18n/server";
 import type { Locale } from "@/lib/i18n/locales";
@@ -65,6 +66,10 @@ export default async function SettingsPage() {
                     </option>
                   ))}
                 </Select>
+                {/* An account created by signing in got Eastern from a column
+                    default. Offered rather than applied, because by the time
+                    anyone sees this it is a real setting. */}
+                <OfferDetectedTimezone current={timezone} />
               </div>
 
               <div>

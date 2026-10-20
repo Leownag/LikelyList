@@ -171,6 +171,20 @@ async function main() {
     }
   });
 
+  await check("/explore does not server-render a guessed city", async () => {
+    // The server cannot know where the reader is, so naming a city in the HTML
+    // is a guess presented as a choice. It used to paint "New York, NY" — the
+    // default slug — and swap to the real guess a frame after hydration, so the
+    // control and the rest of the page disagreed on first load.
+    const { body } = await text("/explore");
+    const field = body.match(/id="explore-city"[^>]*value="([^"]*)"/);
+    assert(field, "could not find the city field in the HTML");
+    assert(
+      field[1] === "",
+      `the server rendered "${field[1]}" into a field the reader never filled`,
+    );
+  });
+
   await check("security headers are set", async () => {
     const response = await get("/");
     const missing = [

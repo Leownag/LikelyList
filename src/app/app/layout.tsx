@@ -11,6 +11,7 @@ import { getT } from "@/lib/i18n/server";
 import { SpotifyConnectButton } from "@/components/spotify-connect";
 import { loadSpotifyState } from "@/lib/spotify/state";
 import { AppNav } from "./app-nav";
+import { AdoptDetectedTimezone } from "./detected-timezone";
 
 const NAV = [
   { href: "/app", label: "nav.overview" },
@@ -24,6 +25,14 @@ const NAV = [
   { href: "/app/subscriptions", label: "nav.follow" },
   { href: "/app/settings", label: "nav.settings" },
 ] as const;
+
+/** Long enough to cover a slow first visit, far short of a considered choice. */
+const NEW_PROFILE_MINUTES = 15;
+
+function isNewProfile(profile: { created_at: string }): boolean {
+  const age = Date.now() - new Date(profile.created_at).getTime();
+  return Number.isFinite(age) && age < NEW_PROFILE_MINUTES * 60_000;
+}
 
 export default async function AppLayout({ children }: LayoutProps<"/app">) {
   // Every protected page re-verifies on the server. There is no proxy to trust
@@ -86,6 +95,15 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
       <PixelRule className="mt-3" />
 
       <main className="mt-8 flex-1">{children}</main>
+
+      {/* A profile is made by a trigger on auth.users, which cannot know where
+          the reader is, so timezone starts as the column default. While the row
+          is minutes old and still holds that default, nobody has chosen it and
+          the browser's guess is strictly better. After that it is a setting,
+          and Settings offers the swap instead of taking it. */}
+      {isNewProfile(profile) ? (
+        <AdoptDetectedTimezone current={profile.timezone} />
+      ) : null}
 
       {devMode ? <DevSendDigest /> : null}
     </div>
