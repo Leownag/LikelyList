@@ -221,9 +221,25 @@ function onsaleStart(event: TmEvent): string | null {
 }
 
 /** Events whose status makes them not worth emailing about. */
-export function isSendableEvent(event: TmEvent): boolean {
+export function isSendableEvent(event: TmEvent, now = new Date()): boolean {
   const status = event.dates?.status?.code;
   if (status === "cancelled" || status === "postponed") return false;
   // Without a date there is nothing to say about when to show up.
-  return Boolean(event.dates?.start?.localDate);
+  if (!event.dates?.start?.localDate) return false;
+
+  // Sales that have already closed. The one action this product offers is a
+  // link to buy, and Ticketmaster answers a closed sale with a page reading
+  // "TICKET SALES TERMINATED" — a worse outcome for the reader than simply not
+  // listing the show. `now` is injectable so this is testable without clocks.
+  const salesEnd = event.sales?.public?.endDateTime;
+  if (salesEnd) {
+    const ends = new Date(salesEnd);
+    // An unparseable value is not evidence of anything, so it is ignored
+    // rather than treated as "ended".
+    if (!Number.isNaN(ends.getTime()) && ends.getTime() < now.getTime()) {
+      return false;
+    }
+  }
+
+  return true;
 }

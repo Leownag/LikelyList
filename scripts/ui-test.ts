@@ -64,7 +64,23 @@ function path(page: Page): string {
 
 async function go(page: Page, to: string, waitUntil: "load" | "networkidle" = "load") {
   const response = await page.goto(`${BASE}${to}`, { waitUntil, timeout: 45_000 });
+  await settled(page);
   return response;
+}
+
+/**
+ * Waits out the /app loading skeleton.
+ *
+ * Since loading.tsx exists, Next paints a skeleton the instant a link is clicked
+ * and swaps in the real content when the server render lands. Without this, a
+ * check reads the skeleton and concludes the page is empty — which is exactly
+ * what happened to the two slowest sections, My feed and What I follow.
+ */
+async function settled(page: Page) {
+  const skeleton = page.locator("[data-loading]");
+  if ((await skeleton.count()) > 0) {
+    await skeleton.first().waitFor({ state: "detached", timeout: 45_000 });
+  }
 }
 
 /**
@@ -167,6 +183,71 @@ async function main() {
         "pin buttons should not render for an anonymous reader",
       );
       await shot(page, "explore");
+    });
+
+    await check("a half-typed place is refused, not guessed", async () => {
+      // The bug this pins: `chosenPlace ?? detectedPoint` meant typing a place
+      // and clicking the button searched whatever the timezone guessed, and the
+      // only hint was a line folded inside a collapsed "Advanced" panel.
+      const city = page.locator("#explore-city");
+      await city.click();
+      await city.fill("Amher");
+      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: /Show me this week/i }).click();
+      await page.waitForTimeout(600);
+
+      const body = await page.locator("main").innerText();
+      assert(/can't tell which/i.test(body), "a half-typed place was accepted");
+      assert(!/of New York/i.test(body), "it fell back to the detected city anyway");
+
+      // And choosing from the list clears it again.
+      await city.click();
+      await city.fill("Amherst");
+      await page.locator('[role="option"]').first().waitFor({ timeout: 15_000 });
+      await page.locator('[role="option"]').first().click();
+      assert(
+        !/can't tell which/i.test(await page.locator("main").innerText()),
+        "choosing a suggestion did not clear the refusal",
+      );
+      return await city.inputValue();
+    });
+
+    await check("the city box can be driven from the keyboard", async () => {
+      // The regression this pins: Enter used to take matches[0] unconditionally
+      // and there were no arrow keys at all, so the only way to reach the third
+      // suggestion was to keep typing until it was the first.
+      const city = page.locator("#explore-city");
+      await city.click();
+      await city.fill("cam");
+      await page.locator('[role="option"]').first().waitFor({ timeout: 15_000 });
+
+      const options = page.locator('[role="option"]');
+      const count = await options.count();
+      assert(count > 2, `expected several suggestions, got ${count}`);
+
+      const first = await options.first().getAttribute("id");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("ArrowDown");
+      const active = await city.getAttribute("aria-activedescendant");
+      assert(active && active !== first, "ArrowDown did not move the active option");
+
+      const wanted = (await options.nth(2).innerText()).replace(/\s+/g, " ").trim();
+      await page.keyboard.press("Enter");
+      const committed = await city.inputValue();
+      assert(
+        committed.startsWith(wanted.split(" ")[0]),
+        `Enter committed "${committed}" rather than the highlighted "${wanted}"`,
+      );
+
+      // A half-typed name must survive losing focus; discarding it meant a tap
+      // anywhere else on a phone silently reverted the field.
+      await city.click();
+      await city.fill("amher");
+      await page.locator("h1").click();
+      const kept = await city.inputValue();
+      assert(kept === "amher", `blur discarded the draft, field reads "${kept}"`);
+
+      return `${count} suggestions, Enter took "${wanted}"`;
     });
 
     await check("explore search returns a week", async () => {
@@ -314,6 +395,21 @@ async function main() {
       assert(cookie?.value !== "zh-Hant", "a switched-off locale was written to a cookie");
     });
 
+    await check("the 404 is ours, with a way home", async () => {
+      const response = await page.goto(`${BASE}/definitely-not-a-page`);
+      assert(response?.status() === 404, `expected 404, got ${response?.status()}`);
+      const body = await page.locator("body").innerText();
+      assert(
+        !/This page could not be found/i.test(body),
+        "still serving Next's own unstyled 404",
+      );
+      assert(
+        (await page.getByRole("link", { name: /likelylist/i }).count()) > 0,
+        "the 404 offers no way back",
+      );
+      await shot(page, "not-found");
+    });
+
     await check("an unknown path is a 404", async () => {
       const response = await go(page, "/definitely-not-a-page");
       assert(response?.status() === 404, `status ${response?.status()}`);
@@ -370,7 +466,12 @@ async function main() {
     });
 
     await check("/app/feeds forwards to the screenshot section", async () => {
+      // The redirect is a client navigation after the RSC response, and the
+      // loading skeleton now paints before it. Waiting for the URL rather than
+      // for load also keeps the next check's goto from aborting this one.
       await go(app, "/app/feeds");
+      await app.waitForURL(/\/app\/subscriptions/, { timeout: 30_000 });
+      await settled(app);
       assert(
         path(app).startsWith("/app/subscriptions"),
         `landed on ${path(app)}`,
@@ -391,6 +492,7 @@ async function main() {
         await go(app, "/app");
         await app.getByRole("navigation").getByRole("link", { name: label, exact: true }).click();
         await app.waitForURL(`${BASE}${expected}`, { timeout: 30_000 });
+        await settled(app);
         const text = await app.locator("main").innerText();
         assert(marker.test(text), `page body did not mention ${marker}`);
         await shot(app, `nav-${expected.replace(/\W+/g, "-")}`);
@@ -493,7 +595,35 @@ async function main() {
       await shot(app, "landing-signed-in");
     });
 
+    await check("sending a real email takes a second click", async () => {
+      // "Build it now" renders a preview; "Email it to me" puts a real message
+      // in a real inbox. They were the same size and the same variant, side by
+      // side, with nothing to tell them apart.
+      //
+      // (The byte-size panel is gated on dev mode, which cannot be exercised
+      // here: isDevMode returns true unconditionally outside production, by
+      // design, and this walk drives a dev server.)
+      await go(app, "/app");
+      const send = app.getByRole("button", { name: /^Email it to me$/i });
+      await send.click();
+      const confirm = app.getByRole("button", { name: /Yes, send it now/i });
+      await confirm.waitFor({ timeout: 10_000 });
+      assert(
+        await app.getByText(/sends a real email/i).isVisible(),
+        "the confirm step did not say what it was about to do",
+      );
+      await app.getByRole("button", { name: /^Cancel$/ }).click();
+      await send.waitFor({ timeout: 10_000 });
+      return "confirm step shown, then cancelled";
+    });
+
     await check("build it now runs once, then holds the door for three minutes", async () => {
+      // Dev mode on, so the byte-size panel this check reads is rendered at all.
+      const secret = process.env.CRON_SECRET;
+      assert(secret, "CRON_SECRET is needed to turn dev mode on");
+      await go(app, `/dev-mode?key=${encodeURIComponent(secret)}`);
+      await go(app, "/app");
+
       const build = app.getByRole("button", { name: /build it now/i });
       await build.click();
       // A real build: queries the event cache and renders the whole email.
@@ -548,7 +678,10 @@ async function main() {
       await go(app, "/app/settings");
       const hour = app.locator("#digest_send_hour");
       const before = await hour.inputValue();
-      const target = before === "9" ? "18" : "9";
+      // Both must be inside DIGEST_SEND_HOURS (06:00-11:00). This used to
+      // reach for "18", which stopped being an option when the picker was
+      // narrowed to the morning.
+      const target = before === "9" ? "10" : "9";
       await hour.selectOption(target);
       await submit(app, app.getByRole("button", { name: "Save", exact: true }));
       await go(app, "/app/settings");
@@ -556,6 +689,27 @@ async function main() {
       assert(after === target, `expected hour ${target}, found ${after}`);
       await shot(app, "settings-saved");
       return `${before} → ${after}`;
+    });
+
+    await check("the app nav says which section you are in", async () => {
+      await go(app, "/app/pinned");
+      const current = app.locator('nav a[aria-current="page"]');
+      assert((await current.count()) === 1, "expected exactly one current nav link");
+      const label = (await current.innerText()).trim();
+      assert(/pinned|收藏/i.test(label), `current link reads "${label}" on /app/pinned`);
+      return label;
+    });
+
+    await check("saving the schedule says so", async () => {
+      // It was a bare server-action form: a full round trip that re-rendered the
+      // same values and told the reader nothing.
+      await go(app, "/app/settings");
+      const hour = app.locator("#digest_send_hour");
+      const before = await hour.inputValue();
+      await hour.selectOption(before === "9" ? "10" : "9");
+      await app.getByRole("button", { name: "Save", exact: true }).click();
+      await app.getByText(/^Saved\.$|^已儲存。$/).waitFor({ timeout: 30_000 });
+      await shot(app, "settings-confirmation");
     });
 
     await check("pausing the digest shows the warning on the overview", async () => {
@@ -638,7 +792,13 @@ async function main() {
       await confirm.fill("DELETE");
       await shot(app, "settings-delete");
       await submit(app, submitButton);
-      await app.waitForURL(`${BASE}/`, { timeout: 30_000 });
+      // deleteAccount redirects to /?deleted=1 so the landing page can say what
+      // just happened, rather than dropping the reader on the sales pitch.
+      await app.waitForURL(`${BASE}/?deleted=1`, { timeout: 30_000 });
+      assert(
+        /deleted/i.test(await app.locator("main").innerText()),
+        "the landing page did not acknowledge the deletion",
+      );
       await go(app, "/app");
       assert(path(app).startsWith("/login"), `still signed in at ${path(app)}`);
 

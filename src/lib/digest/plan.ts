@@ -12,6 +12,7 @@ import { digestRunDate, digestWindow, sendInstantFor } from "@/lib/time";
 import { encodeGeohash } from "@/lib/geohash";
 import { parseGeoCellKey } from "@/lib/geo-cell";
 import type { DigestRun, Profile } from "@/lib/db";
+import { placeLabel } from "@/lib/places";
 
 /**
  * The building half of the pipeline: work out what to send, and to whom.
@@ -163,7 +164,7 @@ export async function planWeeklyDigest(
       // useful thing to read in a log than "42.25,-71".
       cellLabels.set(
         row.geo_cell,
-        [row.place_name, row.state_code].filter(Boolean).join(", ") || row.geo_cell,
+        placeLabel(row.place_name, row.state_code) || row.geo_cell,
       );
     }
   }
@@ -225,7 +226,7 @@ export async function planWeeklyDigest(
       });
 
       const rows = dedupeByEventId([...events, ...onsale])
-        .filter(isSendableEvent)
+        .filter((event) => isSendableEvent(event))
         .map((event) => toCachedEvent(event, cell.key, expiresAt));
 
       if (rows.length > 0) {

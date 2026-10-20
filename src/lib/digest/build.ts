@@ -27,6 +27,7 @@ import {
   type DigestOnsale,
   type DigestPerformer,
 } from "./types";
+import { placeLabel } from "@/lib/places";
 
 /**
  * Assembles one subscriber's digest from the cached events.
@@ -146,9 +147,7 @@ export async function buildDigest(
   const subscriptionLabels = [
     ...new Set(
       subscriptions
-        .map((row) =>
-          [row.place_name, row.state_code].filter(Boolean).join(", "),
-        )
+        .map((row) => placeLabel(row.place_name, row.state_code))
         .filter((label) => label.length > 0),
     ),
   ];
@@ -215,7 +214,7 @@ export async function buildDigest(
   const labelByCell = new Map(
     subscriptions.map((row) => [
       row.geo_cell,
-      [row.place_name, row.state_code].filter(Boolean).join(", "),
+      placeLabel(row.place_name, row.state_code),
     ]),
   );
 

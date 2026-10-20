@@ -170,7 +170,10 @@ export function AnonymousSubscribe({
           placeholder="you@example.com"
           aria-label="Email address"
           autoComplete="email"
-          className="w-full flex-1 border border-border-strong/60 bg-bg/40 px-3 py-2.5 text-sm text-text placeholder:text-faint focus:border-accent focus:bg-bg/70 focus:outline-none"
+          // Hand-rolled rather than the Input primitive, for the glassy panel it
+          // sits in. Kept that way here, but no longer suppressing the focus
+          // outline, and text-base below sm so iOS does not zoom the page.
+          className="w-full flex-1 border border-border-strong/60 bg-bg/40 px-3 py-2.5 text-base text-text placeholder:text-faint focus:border-accent focus:bg-bg/70 sm:text-sm"
         />
         <Button type="submit" disabled={busy} className="shrink-0">
           {busy ? "Sending…" : "Subscribe"}

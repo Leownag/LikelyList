@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { readEnv } from "@/lib/env";
+import { visitorHash } from "@/lib/visitor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTicketmasterClient } from "@/lib/ticketmaster/client";
 import { isSendableEvent, searchMusicEvents } from "@/lib/ticketmaster/events";
@@ -13,9 +14,11 @@ import {
 import { spotifySearchUrl, youtubeSearchUrl } from "@/lib/enrich/links";
 import { encodeGeohash } from "@/lib/geohash";
 import { geocodePostalCode } from "@/lib/geocode";
-import { digestWindow, formatEventDate, formatEventTime } from "@/lib/time";
+import { formatEventDate, formatEventTime, localDateString } from "@/lib/time";
+import type { TmEvent } from "@/lib/ticketmaster/types";
 import type { Genre } from "@/lib/db";
 import type { ExploreEvent } from "@/lib/explore/types";
+import { placeLabel as labelFor } from "@/lib/places";
 
 /**
  * Public event search for /explore. No sign-in, no email.
@@ -85,6 +88,22 @@ const BodySchema = z
       (value.latitude !== undefined && value.longitude !== undefined),
     { message: "Pick a city or enter a ZIP code." },
   );
+
+/**
+ * The local dates these rows actually span, as the header should state it.
+ *
+ * Ticketmaster labels every event with the venue's own local date, so a range
+ * derived from UTC can disagree with the first row on screen. Reading it back
+ * off the results cannot.
+ */
+function coveredRange(events: TmEvent[]): string | null {
+  const dates = events
+    .map((event) => event.dates?.start?.localDate)
+    .filter((date): date is string => Boolean(date))
+    .sort();
+  if (dates.length === 0) return null;
+  return `${dates[0]} … ${dates[dates.length - 1]}`;
+}
 
 export async function POST(request: NextRequest) {
   const env = readEnv();
@@ -161,7 +180,7 @@ export async function POST(request: NextRequest) {
       );
     }
     centre = located;
-    placeLabel = [located.placeName, located.stateCode].filter(Boolean).join(", ");
+    placeLabel = labelFor(located.placeName, located.stateCode);
   } else if (body.latitude !== undefined && body.longitude !== undefined) {
     centre = { latitude: body.latitude, longitude: body.longitude };
     placeLabel = body.placeLabel ?? null;
@@ -187,7 +206,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const window = digestWindow(new Date(), "UTC");
+  // Deliberately from this instant rather than from UTC midnight.
+  //
+  // The header said "2026-10-20 … 2026-10-26" while the first row was a show on
+  // the 19th, because the window was computed in UTC and every row is labelled
+  // with the venue's own local date. At 20:00 Eastern, UTC midnight "today" is
+  // already two hours into tomorrow, so the search reached back into a night
+  // that had started — tickets for which Ticketmaster answers with TICKET SALES
+  // TERMINATED.
+  //
+  // Starting at `now` cannot return a show that has begun, whatever zone the
+  // venue is in, and needs no timezone lookup for a point we only have
+  // coordinates for.
+  const now = new Date();
+  const searchEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   try {
     const client = createTicketmasterClient(env.ticketmasterApiKey);
@@ -204,14 +236,14 @@ export async function POST(request: NextRequest) {
       radius: body.radiusMiles,
       unit: "miles",
       countryCode: "US",
-      startDateTime: window.start,
-      endDateTime: window.end,
+      startDateTime: now,
+      endDateTime: searchEnd,
       // One page. Somebody browsing does not need ten.
       maxPages: 1,
     });
 
     const events: ExploreEvent[] = found
-      .filter(isSendableEvent)
+      .filter((event) => isSendableEvent(event))
       .filter((event) => {
         if (wantedTmGenreIds.size === 0) return true;
         const genreId = primaryClassification(event).genreId;
@@ -248,9 +280,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       events,
-      window: `${window.startDate} … ${window.endDate}`,
+      // Read off the rows that came back rather than computed in UTC, so the
+      // range in the header is one the list can actually satisfy.
+      window: coveredRange(found) ?? `${localDateString("UTC", now)} … ${localDateString("UTC", searchEnd)}`,
       // So the UI can say "12 of 43 matched your genres" honestly.
-      totalBeforeGenreFilter: found.filter(isSendableEvent).length,
+      totalBeforeGenreFilter: found.filter((event) => isSendableEvent(event)).length,
       // Echoed back so a ZIP search can show where it decided that was — the one
       // way somebody notices they typed 02143 instead of 02134.
       placeLabel,
@@ -267,38 +301,4 @@ export async function POST(request: NextRequest) {
       { status: 502 },
     );
   }
-}
-
-/**
- * A stable, non-reversible key for the caller.
- *
- * Cloudflare provides the client IP in `CF-Connecting-IP`. It is hashed with the
- * app secret and truncated, so what ends up in the counters table identifies a
- * repeat caller without recording who they are.
- */
-async function visitorHash(request: NextRequest, secret: string): Promise<string> {
-  const ip =
-    request.headers.get("cf-connecting-ip") ??
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "unknown";
-
-  if (!secret) return ip === "unknown" ? "unknown" : "unkeyed";
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(ip),
-  );
-
-  return [...new Uint8Array(signature)]
-    .slice(0, 8)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }

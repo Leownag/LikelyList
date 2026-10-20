@@ -46,7 +46,8 @@ export function ConfirmForm({
   extraction: FeedExtraction;
   previewUrl?: string | null;
   onApplied: (summary: string) => void;
-  onDiscard?: () => void;
+  /** May be async — the caller awaits the delete before resetting. */
+  onDiscard?: () => void | Promise<void>;
 }) {
   const [artists, setArtists] = useState<EditableArtist[]>(() => {
     const found = extraction.artists ?? [];

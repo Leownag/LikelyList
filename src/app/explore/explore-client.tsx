@@ -19,6 +19,7 @@ import {
   type PlacePoint,
   type PlaceSuggestion,
 } from "@/lib/explore/types";
+import { placeLabel } from "@/lib/places";
 
 type Mode = "city" | "zip";
 
@@ -64,6 +65,8 @@ export function ExploreClient({
   // coordinates too.
   const detectedCitySlug = useDetectedCitySlug();
   const [chosenPlace, setChosenPlace] = useState<PlaceSuggestion | null>(null);
+  /** Typed into the city box but never committed to a suggestion. */
+  const [pendingCity, setPendingCity] = useState("");
 
   const detectedCity =
     cities.find((city) => city.slug === detectedCitySlug) ?? cities[0] ?? null;
@@ -77,10 +80,26 @@ export function ExploreClient({
         }
       : null;
 
+  // The timezone guess is a starting point, not an answer: it stands in only
+  // while the reader has expressed no opinion at all. The moment they start
+  // typing, `search` refuses rather than quietly falling back to it.
   const place: PlacePoint | null = chosenPlace ?? detectedPoint;
 
   async function search(overrideRadius?: number) {
     const radius = overrideRadius ?? radiusMiles;
+
+    // The bug this replaces: typing "Amherst" and clicking the button searched
+    // whatever the timezone guessed, usually New York, and the only hint was a
+    // line folded inside a collapsed "Advanced" panel. Half-typed is not a
+    // place, and guessing one is worse than asking.
+    if (mode === "city" && pendingCity.trim().length > 0) {
+      setError(
+        `Pick a place from the list — we can't tell which “${pendingCity.trim()}” you mean.`,
+      );
+      setResult(null);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setShowSubscribe(false);
@@ -94,7 +113,7 @@ export function ExploreClient({
           longitude: mode === "city" ? place?.longitude : undefined,
           placeLabel:
             mode === "city" && place
-              ? [place.name, place.stateCode].filter(Boolean).join(", ")
+              ? placeLabel(place.name, place.stateCode)
               : undefined,
           postalCode: mode === "zip" ? postalCode.trim() : null,
           genreIds: [...genreIds],
@@ -151,8 +170,17 @@ export function ExploreClient({
               <CityTypeahead
                 id="explore-city"
                 value={place}
-                onChange={setChosenPlace}
+                onChange={(next) => {
+                  setChosenPlace(next);
+                  setError(null);
+                }}
+                onDraftChange={setPendingCity}
               />
+              {!chosenPlace && detectedPoint ? (
+                <p className="mt-1 text-xs text-faint">
+                  Detected from your timezone — change it if it&apos;s wrong.
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="min-w-48 flex-1">
@@ -226,22 +254,21 @@ export function ExploreClient({
           </div>
 
           {/*
-            Advanced search, and only now.
-            Distance is the one control that cannot be judged in advance: fifty miles
-            is generous in New England and barely leaves the county in Texas. Showing
-            it beside a result count turns it into a question the reader can actually
-            answer — "85 shows, want to look further?" — and it also explains where
-            the search was centred, which is the only way a mistyped ZIP is ever
-            noticed.
+            Distance, shown once there is a result and no longer folded away.
+            It cannot be judged in advance — fifty miles is generous in New England
+            and barely leaves the county in Texas — so it only becomes a question the
+            reader can answer next to a count: "98 shows, want to look further?".
+            It was behind a <details> labelled "Advanced", which is where a control
+            goes to be ignored, and the explanation beneath it was about how
+            Ticketmaster's API behaves rather than about what the reader gets.
           */}
           {result.radiusMiles ? (
-            <details className="mt-3 border border-border bg-surface-raised">
-              <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-text">
-                Advanced — searching within {result.radiusMiles} miles
-                {result.placeLabel ? ` of ${result.placeLabel}` : ""}
-              </summary>
-              <div className="border-t border-border px-3 py-3">
-                <Label>Distance</Label>
+            <div className="mt-3 border border-border bg-surface-raised">
+              <div className="px-3 py-3">
+                <Label>
+                  How far to look — within {result.radiusMiles} miles
+                  {result.placeLabel ? ` of ${result.placeLabel}` : ""}
+                </Label>
                 <div className="flex flex-wrap gap-1.5">
                   {RADIUS_CHOICES.map((miles) => {
                     const active = miles === result.radiusMiles;
@@ -271,12 +298,12 @@ export function ExploreClient({
                   })}
                 </div>
                 <p className="mt-2 text-xs text-faint">
-                  Ticketmaster only honours a radius around a point, so this is what
-                  actually decides how much you see — a city name on its own matches
-                  the venue&apos;s own city field and misses the next town over.
+                  Fifty miles is generous in New England and barely leaves the
+                  county in Texas, so this is worth changing. It also shows where
+                  the search was centred, which is how a mistyped ZIP gets noticed.
                 </p>
               </div>
-            </details>
+            </div>
           ) : null}
 
           <PixelRule className="mt-3" />
@@ -291,7 +318,7 @@ export function ExploreClient({
                 preset={{
                   label:
                     result.placeLabel ??
-                    [place?.name, place?.stateCode].filter(Boolean).join(", "),
+                    placeLabel(place?.name, place?.stateCode),
                   // A town chosen from the typeahead subscribes by GEOID; the detected
                   // metro nobody touched is a curated city, and keeping its slug is
                   // what keeps it visible in the city grid later.

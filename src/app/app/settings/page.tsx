@@ -1,13 +1,16 @@
 import { requireProfile } from "@/lib/supabase/server";
-import { Button, Card, Label, Notice, SectionHeading, Select } from "@/components/ui";
+import { Card, Label, Notice, SectionHeading, Select } from "@/components/ui";
 import {
   DIGEST_SEND_HOURS,
   DIGEST_WEEKDAY,
   TIMEZONES,
+  TIMEZONE_LABELS,
   morningSendHour,
+  supportedTimezone,
   nextWeekdayAt,
 } from "@/lib/time";
 import { deleteAccount, updateSchedule } from "./actions";
+import { DeliveryForm } from "./delivery-form";
 import { DeleteAccount } from "./delete-account";
 import { getI18n, getT } from "@/lib/i18n/server";
 import type { Locale } from "@/lib/i18n/locales";
@@ -24,13 +27,9 @@ export default async function SettingsPage() {
   // to its first option on a profile whose stored hour predates the morning
   // window and then silently save that instead.
   const sendHour = morningSendHour(profile.digest_send_hour);
+  const timezone = supportedTimezone(profile.timezone);
 
-  const nextSend = nextWeekdayAt(
-    new Date(),
-    profile.timezone,
-    DIGEST_WEEKDAY,
-    sendHour,
-  );
+  const nextSend = nextWeekdayAt(new Date(), timezone, DIGEST_WEEKDAY, sendHour);
 
   return (
     <div className="space-y-10">
@@ -39,18 +38,30 @@ export default async function SettingsPage() {
           {t("settings.delivery.heading")}
         </SectionHeading>
         <Card className="p-5">
-          <form action={updateSchedule} className="space-y-5">
+          <DeliveryForm
+            action={updateSchedule}
+            saveLabel={t("common.save")}
+            savingLabel={t("common.saving")}
+            savedLabel={t("settings.saved")}
+            footer={
+              <p className="text-xs text-faint">
+                {t("settings.next", {
+                  when: formatNext(nextSend, timezone, locale),
+                })}
+              </p>
+            }
+          >
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <Label htmlFor="timezone">{t("settings.timezone")}</Label>
                 <Select
                   id="timezone"
                   name="timezone"
-                  defaultValue={profile.timezone}
+                  defaultValue={timezone}
                 >
                   {TIMEZONES.map((zone) => (
                     <option key={zone} value={zone}>
-                      {zone.replace(/_/g, " ")}
+                      {TIMEZONE_LABELS[zone]}
                     </option>
                   ))}
                 </Select>
@@ -87,15 +98,7 @@ export default async function SettingsPage() {
               </span>
             </label>
 
-            <div className="flex flex-wrap items-center gap-4">
-              <Button type="submit">{t("common.save")}</Button>
-              <p className="text-xs text-faint">
-                {t("settings.next", {
-                  when: formatNext(nextSend, profile.timezone, locale),
-                })}
-              </p>
-            </div>
-          </form>
+          </DeliveryForm>
 
           <div className="mt-5">
             <Notice>{t("settings.drift")}</Notice>
@@ -137,7 +140,8 @@ function formatNext(at: Date, timezone: string, locale: Locale): string {
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit",
+    // No minutes: Cloudflare spreads a trigger across its hour, which the
+    // drift notice below this form says outright.
     timeZoneName: "short",
   }).format(at);
 }

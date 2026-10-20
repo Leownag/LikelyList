@@ -48,7 +48,12 @@ export default async function PinnedPage() {
       <section>
         <SectionHeading hint={t("pinned.hint")}>{t("pinned.heading")}</SectionHeading>
 
-        {upcoming.length === 0 ? (
+        {/* Keyed on the whole list, not just `upcoming`. Testing `upcoming` alone
+            put "nothing pinned yet" directly above a populated "Already happened"
+            section — the page contradicting itself for anyone whose pins have all
+            taken place. Nothing pinned at all is a different state from nothing
+            coming up, and they get different sentences. */}
+        {pins.length === 0 ? (
           <EmptyState title={t("pinned.empty.title")}>
             {/* Two links inside one sentence, so the translation places them rather than
                 being handed a pre-assembled English clause order. */}
@@ -60,6 +65,10 @@ export default async function PinnedPage() {
                 {t("pinned.empty.search")}
               </a>,
             ])}
+          </EmptyState>
+        ) : upcoming.length === 0 ? (
+          <EmptyState title={t("pinned.none.title")}>
+            {t("pinned.none.body")}
           </EmptyState>
         ) : (
           <ul className="space-y-3">

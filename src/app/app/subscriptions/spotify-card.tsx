@@ -1,4 +1,4 @@
-import { Card } from "@/components/ui";
+import { Card, Notice } from "@/components/ui";
 import { SpotifyConnectButton } from "@/components/spotify-connect";
 import { disconnectSpotify } from "./actions";
 import { IMPORT_INTERVAL_DAYS } from "@/lib/spotify/import";
@@ -37,11 +37,19 @@ export function SpotifyCard({ state }: { state: SpotifyState }) {
           </p>
 
           {state.needsReconnect ? (
-            <p className="mt-3 border border-warn/40 bg-surface-raised px-3 py-2 text-xs text-warn">
-              Spotify has revoked the connection — most likely from its own
-              settings page. Reconnect to start importing again. Nothing was lost:
-              the artists already imported are still followed.
-            </p>
+            // Was a hand-rolled panel using `text-warn` and `border-warn/40`.
+            // There is no --color-warn in the theme, so neither class was
+            // generated and this rendered as a bare currentColor box on a dark
+            // page — the one off-palette colour in the codebase, and the reason
+            // this card looked like it belonged to a different site. Notice
+            // already owns the warn tone.
+            <div className="mt-3">
+              <Notice tone="warn">
+                Spotify has revoked the connection — most likely from its own
+                settings page. Reconnect to start importing again. Nothing was
+                lost: the artists already imported are still followed.
+              </Notice>
+            </div>
           ) : (
             <p className="mt-2 text-xs text-faint">
               Your top artists are re-read every {IMPORT_INTERVAL_DAYS} days.

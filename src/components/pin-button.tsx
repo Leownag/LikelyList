@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useT } from "@/lib/i18n/client";
+import { StatusLine } from "@/components/ui";
 import { pinEvent, unpinEvent } from "@/app/app/pinned/actions";
 import type { PinInput } from "@/lib/pins/types";
 
@@ -29,26 +30,34 @@ export function PinButton({
   const t = useT();
   const [pinned, setPinned] = useState(initiallyPinned);
   const [pending, startTransition] = useTransition();
+  const [note, setNote] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   if (!signedIn) return null;
 
   function toggle() {
     const next = !pinned;
     setPinned(next);
+    setNote(null);
 
     startTransition(async () => {
       try {
         if (next) await pinEvent(event);
         else await unpinEvent(event.tmEventId);
+        // Answers "where did that go", which the button alone never did.
+        setNote(next ? { tone: "success", text: t("card.pin.saved") } : null);
       } catch {
         // Put it back. Without this the button lies about what the server holds, and
         // the reader finds out when the Pinned page disagrees.
         setPinned(!next);
+        // And say so. Rolling back silently meant the button simply sprang back
+        // and the reader had no idea whether they had misclicked.
+        setNote({ tone: "error", text: t("card.pin.failed") });
       }
     });
   }
 
   return (
+    <span className="inline-flex flex-col items-start gap-1">
     <button
       type="button"
       onClick={toggle}
@@ -76,7 +85,15 @@ export function PinButton({
         <path d="M4 0.6h3v3l1.6 2H2.4L4 3.6z" />
         <path d="M5.5 5.6v4.8" />
       </svg>
-      {pinned ? t("card.pinned") : t("card.pin")}
+      {pending
+        ? pinned
+          ? t("card.pinning")
+          : t("card.unpinning")
+        : pinned
+          ? t("card.pinned")
+          : t("card.pin")}
     </button>
+    {note ? <StatusLine tone={note.tone}>{note.text}</StatusLine> : null}
+    </span>
   );
 }

@@ -24,9 +24,79 @@ and not a preference.
 Stack: Next.js 16 (App Router) on Cloudflare Workers via `@opennextjs/cloudflare`,
 Supabase for Postgres + Auth + Storage, Resend + `react-email` for delivery.
 
+Run it yourself: [Setup](#setup) · understand it: [Architecture](#architecture) ·
+what it does badly: [Known limitations](#known-limitations) · [MIT](LICENSE).
+
 ---
 
 ## Architecture
+
+Three things get the whole shape across: everything is one Cloudflare Worker,
+every route delegates to `src/lib`, and the weekly email is built by a cron and
+sent by a different one.
+
+```
+   reader's browser          Cloudflare cron            unsubscribe@ mail
+          │                   0 8 * * 3                  (Email Routing)
+          │                   */5 * * * *                       │
+          │ HTTPS                   │ scheduled                 │ email
+          ▼                         ▼                           ▼
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  ONE Cloudflare Worker                                               │
+  │                                                                      │
+  │  worker.ts ──┬── fetch ──────┐                                       │
+  │              ├── scheduled ──┼──► .open-next/worker.js               │
+  │              └── email ──────┘    (Next.js 16, App Router)           │
+  │                                                                      │
+  │  The last two call the fetch handler in-process, so a cron pass and  │
+  │  a curl hit exactly the same route code and the app is bundled once. │
+  └───────────────────────────────┬──────────────────────────────────────┘
+                                  │
+          ┌───────────────────────┼───────────────────────┐
+          ▼                       ▼                       ▼
+    src/app/ (public)       src/app/app/            src/app/api/
+    landing, explore,       overview, my feed,      cron/digest, explore,
+    login, privacy,         pinned, what I          places/search, feeds,
+    subscribe, unsubscribe  follow, settings        spotify/*, digest/preview
+          └───────────────────────┼───────────────────────┘
+                                  │  a route reads the request, calls ONE
+                                  │  lib function, shapes a response
+                                  ▼
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │  src/lib — domain logic. No Next.js imports, so node:test runs it     │
+  │  without a server (the whole suite is ~1s, no fixtures).              │
+  │                                                                       │
+  │  digest/   plan → queue → drain → build → render → send               │
+  │  ticketmaster/  client, rate limits, event + genre shapes             │
+  │  feeds/    screenshot → vision model → strict JSON → confirmation     │
+  │  spotify/  OAuth state, top-artist import      email/   react-email   │
+  │  places    32,329 US places: search, ranking, labels                  │
+  │  time      per-reader send instants, DST, the digest weekday          │
+  └───────────────┬────────────────────────────────────┬──────────────────┘
+                  │                                    │
+                  ▼                                    ▼
+  ┌───────────────────────────────┐    ┌───────────────────────────────────┐
+  │  Supabase                     │    │  third parties                    │
+  │                               │    │                                   │
+  │  Postgres   every table RLS   │    │  Ticketmaster  listings (US only) │
+  │             deny-all caches   │    │  OpenAI        reads screenshots  │
+  │  Auth       magic links only, │    │  Resend        delivery           │
+  │             no passwords      │    │  Spotify       top artists        │
+  │  Storage    feeds/ — holds    │    │  YouTube       one video per act  │
+  │             only failures     │    │  Zippopotam    ZIP → coordinates  │
+  └───────────────────────────────┘    └───────────────────────────────────┘
+```
+
+Two notes the diagram cannot carry, both load-bearing:
+
+- **There is no `proxy.ts`.** Next 16 renamed middleware and runs it on Node,
+  which `@opennextjs/cloudflare` cannot deploy — with the file present the build
+  emits no worker at all, and exits 0 while doing it. Session refresh therefore
+  happens in the browser, in `src/components/session-sync.tsx`.
+- **Two database clients, deliberately.** The session client is the reader, and
+  RLS is what stops them seeing anyone else. The service-role client bypasses RLS
+  and is confined to the cron path and the few routes that must act for a reader
+  who has no session. Mixing them up is the one mistake here that is silent.
 
 ### One Worker, four ways in
 
@@ -37,7 +107,7 @@ compiles the Next.js app into `.open-next/worker.js`, which exports only `fetch`
 | Trigger | Handler | Reaches |
 | --- | --- | --- |
 | HTTP request | `fetch` | any route in `src/app/` |
-| Cron (`0 19 * * 2`, `*/5 * * * *`) | `scheduled` | `/api/cron/digest` |
+| Cron (`0 8 * * 3`, `*/5 * * * *`) | `scheduled` | `/api/cron/digest` |
 | Inbound email (Email Routing) | `email` | `/api/inbound/unsubscribe` |
 
 The two extra handlers deliberately import no application code. They construct a
@@ -530,7 +600,7 @@ with `openssl rand -hex 32`.
 ## How the weekly send works
 
 ```
-Weekly cron  "0 19 * * 2"                Drain cron  "*/5 * * * *"
+Weekly cron  "0 8 * * 3"                 Drain cron  "*/5 * * * *"
       │                                        │
       ├─ create digest_runs row                ├─ requeue jobs whose lease expired
       ├─ refresh genre taxonomy if stale       ├─ claim a small batch whose
@@ -593,16 +663,18 @@ expression.
 across the hour it is triggered in. "Wednesday morning" is reliable; a precise
 minute is not.
 
-**The builder runs Tuesday, the sends land Wednesday.** Everyone is emailed on
-their own local Wednesday morning, and the supported zones bound that span:
-Tokyo (UTC+9) at 06:00 is Tuesday 21:00 UTC, Honolulu (UTC-10) at 11:00 is
-Wednesday 21:00 UTC. Building at Tuesday 19:00 UTC sits two hours before the
-earliest send — margin for the hour Cloudflare spreads a trigger across — and
-the latest send is still 26 hours later, inside the 36-hour `events_cache` TTL
-every job reads from. The weekday itself lives in `DIGEST_WEEKDAY`, not in the
-cron expression: a run instant falls on different calendar days in different
-zones, so reading the day off the clock is how a "Friday" email used to arrive
-on a Thursday west of UTC-9.
+**The builder and every send share one UTC day.** Readers are emailed on their
+own local Wednesday morning, and the supported zones bound that span — all of
+them US since the timezone list was trimmed, so New York (UTC-4) at 06:00 is
+10:00 UTC and Honolulu (UTC-10) at 11:00 is 21:00 UTC. Building at 08:00 UTC
+sits two hours before the earliest send, which is margin for the hour
+Cloudflare spreads a trigger across, and the latest send is 13 hours later —
+well inside the 36-hour `events_cache` TTL every job reads from.
+
+The weekday itself lives in `DIGEST_WEEKDAY`, not in the cron expression. A run
+instant falls on different calendar days in different zones, and reading the day
+off the clock is how a "Friday" email used to arrive on a Thursday west of
+UTC-9.
 
 Both passes can be driven by hand:
 
@@ -619,7 +691,7 @@ anything is sent. To see an email now, use the preview route instead.
 Under `npm run preview`, the real scheduled handler can be fired with:
 
 ```bash
-curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+19+*+*+2"
+curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+8+*+*+3"
 ```
 
 ---
@@ -919,3 +991,23 @@ src/
     site-url.ts              Origin only, for pages that must not need credentials
     time.ts                  Timezone and DST arithmetic
 ```
+
+---
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+Two things the licence does not cover, because they are not ours to give:
+
+- **Event data** comes from the Ticketmaster Discovery API and is used under
+  [their terms](https://developer.ticketmaster.com/support/terms-of-use/), which
+  require attribution and forbid caching listings for long — hence the 36-hour
+  TTL on `events_cache` and the purge that runs on every drain pass.
+- **Brand marks** in `public/brand/` belong to their owners. Spotify's and
+  YouTube's guidelines both forbid modified marks, which is why they are used
+  unaltered and never redrawn in this site's pixel style.
+
+Running your own copy needs your own keys for every service in *Setup*. Nothing
+in this repository carries credentials, and `.env.example` is the full list of
+what you would have to supply.

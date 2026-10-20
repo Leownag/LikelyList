@@ -9,13 +9,82 @@ import type { ToggleItem } from "./toggle-grid";
 import { ArtistSearch } from "./artist-search";
 import { SpotifyCard } from "./spotify-card";
 import { loadSpotifyState } from "@/lib/spotify/state";
+import { placeLabel } from "@/lib/places";
 
 export const metadata = { title: "What I follow" };
+
+/**
+ * What /api/spotify/callback is telling us.
+ *
+ * It has always redirected here with one of these, and nothing read them — so
+ * cancelling at Spotify's consent screen, or narrowing the scope, or an import
+ * that failed, all returned the reader to an unchanged page with no explanation
+ * whatsoever. Only `connected` was visible, and only because the card re-reads
+ * its own state from the database.
+ */
+function spotifyOutcome(
+  code: string | undefined,
+  imported: string | undefined,
+): { tone: "success" | "warn" | "error"; message: string } | null {
+  switch (code) {
+    case "connected": {
+      const n = Number(imported);
+      return {
+        tone: "success",
+        message: Number.isFinite(n) && n > 0
+          ? `Spotify connected — ${n} artist${n === 1 ? "" : "s"} imported.`
+          : "Spotify connected.",
+      };
+    }
+    case "connected_no_import":
+      return {
+        tone: "warn",
+        message:
+          "Spotify is connected, but we could not read your top artists just now. It will try again with the next weekly run.",
+      };
+    case "cancelled":
+      return {
+        tone: "warn",
+        message: "Spotify was not connected — you cancelled at their consent screen.",
+      };
+    case "missing_scope":
+      return {
+        tone: "warn",
+        message:
+          "Spotify did not grant access to your top artists, which is the one thing this uses. Try connecting again and leave that permission ticked.",
+      };
+    case "expired":
+      return {
+        tone: "warn",
+        message: "That took too long and the link expired. Try connecting again.",
+      };
+    case "no_refresh_token":
+      return {
+        tone: "error",
+        message:
+          "Spotify did not return a lasting connection. Disconnect it in your Spotify account settings, then try again.",
+      };
+    case "invalid":
+    case "failed":
+      return { tone: "error", message: "Connecting to Spotify did not work. Try again." };
+    case "not_configured":
+      return {
+        tone: "error",
+        message: "Spotify is not set up on this deployment.",
+      };
+    default:
+      return null;
+  }
+}
 
 export default async function SubscriptionsPage({
   searchParams,
 }: PageProps<"/app/subscriptions">) {
-  const { subscribed } = await searchParams;
+  const {
+    subscribed,
+    spotify: spotifyParam,
+    artists: importedCount,
+  } = await searchParams;
   const user = await requireUser();
   const supabase = await createClient();
 
@@ -88,7 +157,10 @@ export default async function SubscriptionsPage({
   const cityItems: ToggleItem[] = cities.map((city) => ({
     id: city.id,
     label: city.name,
-    sublabel: city.state_code,
+    // The chip renders label and sublabel as adjacent elements, so a name that
+    // already carries its state produced "Washington, DC DC". placeLabel is the
+    // authority on whether the state is already in there.
+    sublabel: placeLabel(city.name, city.state_code) === city.name ? null : city.state_code,
   }));
 
   const genreItems: ToggleItem[] = genres.map((genre) => ({
@@ -117,9 +189,18 @@ export default async function SubscriptionsPage({
     .filter((artist) => artist.score > 0)
     .map((artist) => artist.id);
 
+  const spotifyNotice = spotifyOutcome(
+    typeof spotifyParam === "string" ? spotifyParam : undefined,
+    typeof importedCount === "string" ? importedCount : undefined,
+  );
+
   return (
     <div className="space-y-10">
       <SectionNav />
+
+      {spotifyNotice ? (
+        <Notice tone={spotifyNotice.tone}>{spotifyNotice.message}</Notice>
+      ) : null}
 
       {subscribed ? (
         <Notice tone="success">
@@ -130,11 +211,9 @@ export default async function SubscriptionsPage({
 
       {genres.length === 0 ? (
         <Notice tone="warn">
-          No genres are loaded yet. Run{" "}
-          <code className="font-mono text-text">npm run seed:genres</code> — the
-          genre IDs are read from Ticketmaster&apos;s live API rather than
-          hardcoded, because Ticketmaster publishes no genre ID table and
-          third-party lists disagree with each other.
+          Genres are not available right now, so the digest will not be filtered
+          by them. Everything else below still works. (Operators: this means the
+          genre taxonomy has not been loaded — see the README.)
         </Notice>
       ) : null}
 

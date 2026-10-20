@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cleanPlaceName, placeRank, placeSearchKey } from "./places";
+import {
+  cleanPlaceName,
+  distanceMiles,
+  placeBand,
+  placeLabel,
+  placeRank,
+  placeSearchKey,
+} from "./places";
 
 test("Census type suffixes are stripped from place names", () => {
   // The Gazetteer spells these out; a search box does not want them.
@@ -85,4 +92,60 @@ test("a missing or absurd area does not produce a broken rank", () => {
       `area ${area} produced rank ${rank}`,
     );
   }
+});
+
+test("a name that already carries its state does not get a second one", () => {
+  // The seeded Washington row was `name: "Washington, DC"` with `state_code: "DC"`,
+  // which two different renderers turned into two different wrong answers. The seed
+  // is fixed, but rows written before that are still in the database.
+  assert.equal(placeLabel("Washington, DC", "DC"), "Washington, DC");
+  assert.equal(placeLabel("washington, dc", "DC"), "washington, dc");
+  assert.equal(placeLabel("Washington", "DC"), "Washington, DC");
+});
+
+test("placeLabel copes with the halves it can be handed", () => {
+  assert.equal(placeLabel("Cambridge", "MA"), "Cambridge, MA");
+  assert.equal(placeLabel("Cambridge", null), "Cambridge");
+  assert.equal(placeLabel(null, "MA"), "MA");
+  assert.equal(placeLabel(null, null), "");
+  // "Camden" must not be swallowed by a state code it merely ends with.
+  assert.equal(placeLabel("Camden", "DEN"), "Camden, DEN");
+});
+
+test("the rank band ignores the land-area tiebreak inside it", () => {
+  // The bug this exists for: rank carries "what kind of place" in its hundreds
+  // and "how physically large" in its units, and the second was deciding
+  // matches. Cambridge, MA (~6 sq mi) and Camarillo, CA (~20 sq mi) are both
+  // incorporated cities, so they must land in the same band and let something
+  // else — distance — choose between them.
+  const cambridge = placeRank(placeSearchKey("Cambridge", "MA"), "25", 6.4);
+  const camarillo = placeRank(placeSearchKey("Camarillo", "CA"), "25", 19.6);
+  assert.ok(camarillo < cambridge, "precondition: area still ranks Camarillo first");
+  assert.equal(placeBand(cambridge), placeBand(camarillo));
+
+  // A curated metro keeps a band to itself, so "new" still offers New York
+  // before a nearer Newton.
+  assert.equal(placeBand(placeRank(placeSearchKey("New York", "NY"), "25", 300)), 0);
+  assert.ok(placeBand(cambridge) > 0);
+
+  // And the kinds stay ordered: city before town before CDP.
+  const town = placeRank(placeSearchKey("Brookline", "MA"), "43", 6.8);
+  const cdp = placeRank(placeSearchKey("Somewhere", "MA"), "57", 6.8);
+  assert.ok(placeBand(cambridge) < placeBand(town));
+  assert.ok(placeBand(town) < placeBand(cdp));
+});
+
+test("distanceMiles is close enough to order a dropdown", () => {
+  const boston = { latitude: 42.3601, longitude: -71.0589 };
+  const cambridge = { latitude: 42.3736, longitude: -71.1097 };
+  const camarillo = { latitude: 34.2164, longitude: -119.0376 };
+
+  assert.ok(distanceMiles(boston, cambridge) < 5);
+  assert.ok(distanceMiles(boston, camarillo) > 2500);
+  assert.equal(Math.round(distanceMiles(boston, boston)), 0);
+  // Symmetric, because a sort that is not would be unstable.
+  assert.equal(
+    Math.round(distanceMiles(boston, camarillo)),
+    Math.round(distanceMiles(camarillo, boston)),
+  );
 });

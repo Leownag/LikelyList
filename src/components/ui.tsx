@@ -4,6 +4,14 @@ import Link from "next/link";
 /* Shared chrome for the whole app. Sharp corners come from the global reset in
    globals.css, so nothing here needs to say `rounded-none`. */
 
+/* Form controls are text-base below `sm` and text-sm above. iOS Safari zooms the
+   page when a control under 16px takes focus, and it does not zoom back out.
+
+   They also do NOT set focus:outline-none. The accent border on focus reads as a
+   focus state to someone using a mouse, but suppressing the outline suppressed it
+   for keyboard users too — and the global :focus-visible rule in globals.css was
+   the only focus affordance those three fields had. */
+
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -68,7 +76,7 @@ export function Input({ className = "", ...props }: ComponentProps<"input">) {
   return (
     <input
       {...props}
-      className={`w-full border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-faint focus:border-accent focus:outline-none ${className}`}
+      className={`w-full border border-border bg-surface-raised px-3 py-2 text-base text-text placeholder:text-faint focus:border-accent sm:text-sm ${className}`}
     />
   );
 }
@@ -77,7 +85,7 @@ export function Select({ className = "", ...props }: ComponentProps<"select">) {
   return (
     <select
       {...props}
-      className={`w-full border border-border bg-surface-raised px-3 py-2 text-sm text-text focus:border-accent focus:outline-none ${className}`}
+      className={`w-full border border-border bg-surface-raised px-3 py-2 text-base text-text focus:border-accent sm:text-sm ${className}`}
     />
   );
 }
@@ -137,6 +145,44 @@ export function Notice({
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * The result of something the reader just did, said where they did it.
+ *
+ * This component is new because the app had nothing of the kind, which is why
+ * saving your settings, following a town, disconnecting Spotify and a failed pin
+ * were all completely silent — not an oversight in each place, just nothing to
+ * reach for. ArtistSearch had grown its own one-off version; this is that,
+ * generalised.
+ *
+ * Inline rather than a floating toast on purpose. What readers reported missing
+ * was not a notification but legibility: where a pinned show went, why a button
+ * was disabled, whether a save landed. An answer that drifts away after three
+ * seconds does not help with any of those, and it is the harder thing for
+ * assistive tech to catch.
+ *
+ * `role="status"` makes it an assertive-enough live region that a screen reader
+ * announces it without interrupting, which is the right level for "Saved."
+ */
+export function StatusLine({
+  tone = "success",
+  children,
+}: {
+  tone?: "success" | "error";
+  children?: ReactNode;
+}) {
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      // Always rendered, even with nothing to say: a live region that appears
+      // only when it has content is announced inconsistently across readers.
+      className={`text-xs ${tone === "error" ? "text-danger" : "text-muted"}`}
+    >
+      {children}
+    </p>
   );
 }
 

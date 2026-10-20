@@ -50,6 +50,78 @@ const LSAD_RANK: Record<string, number> = {
   "57": 6, // CDP
 };
 
+/**
+ * How a place is written for a reader: "Cambridge, MA".
+ *
+ * One function because it was previously open-coded in eight places, and the
+ * seeded `cities` row for Washington carried its state inside `name` *and* in
+ * `state_code`. Two of those call sites joined with ", " and produced
+ * "Washington, DC, DC"; the chip grid rendered name and state as adjacent
+ * elements with no separator and produced "Washington, DC DC". One bad row, two
+ * different wrong answers, because nothing owned the question.
+ *
+ * The seed is fixed too, but the guard stays: rows written before that fix are
+ * still in the database, and `subscriptions.place_name` copies the name at
+ * subscribe time rather than joining to it.
+ */
+export function placeLabel(
+  name: string | null | undefined,
+  stateCode: string | null | undefined,
+): string {
+  const place = (name ?? "").trim();
+  const state = (stateCode ?? "").trim();
+  if (!place) return state;
+  if (!state) return place;
+  // Case-insensitive because the column is free text, not an enum.
+  if (place.toUpperCase().endsWith(`, ${state.toUpperCase()}`)) return place;
+  return `${place}, ${state}`;
+}
+
+/**
+ * Which band of significance a `rank` falls in.
+ *
+ * `rank` mixes two different things: a coarse kind (curated metro, then
+ * incorporated city, town, village, borough, CDP — each 100 apart) and, inside
+ * each kind, a land-area tiebreak. Only the kind is worth ordering on. The area
+ * part was deciding matches it had no business deciding: Camarillo, CA is three
+ * times the size of Cambridge, MA, so it came first for "cam" no matter who was
+ * typing.
+ *
+ * Curated metros keep a band of their own rather than merging into the city
+ * band, so "new" still offers New York before a nearer Newton.
+ */
+export function placeBand(rank: number): number {
+  if (!Number.isFinite(rank)) return 99;
+  if (rank === 0) return 0;
+  return 1 + Math.floor(rank / 100);
+}
+
+/** Mean Earth radius in miles. */
+const EARTH_RADIUS_MILES = 3958.8;
+
+/**
+ * Great-circle distance in miles.
+ *
+ * Only ever used to order a dropdown, so the sphere is plenty — the error
+ * against an ellipsoid is a fraction of a percent, and nothing here cares
+ * whether Cambridge is 3.1 or 3.2 miles away.
+ */
+export function distanceMiles(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_MILES * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /** Lowercased "name, st". The seeded column a prefix search runs against. */
 export function placeSearchKey(name: string, stateCode: string): string {
   return `${name}, ${stateCode}`.toLowerCase();

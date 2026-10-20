@@ -211,6 +211,11 @@ export function morningSendHour(hour: number): number {
  *
  * The reader's locale, not en-US: an English weekday inside Chinese body copy is
  * the most visible way a "translated" page announces that it is not.
+ *
+ * No minutes. Cloudflare spreads a scheduled trigger across the hour it fires
+ * in, which the settings page says in as many words — so printing "8:00 AM"
+ * beside that was the page contradicting itself. The hour is the most precise
+ * thing this system can honestly promise, and callers wrap it in "around".
  */
 export function nextDigestLabel(
   profile: { timezone: string; digest_send_hour: number },
@@ -229,7 +234,6 @@ export function nextDigestLabel(
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit",
     timeZoneName: "short",
   }).format(next);
 }
@@ -306,7 +310,17 @@ export function formatInstantInZone(
   }
 }
 
-/** IANA zones offered in Settings. Kept short — these are the US markets. */
+/**
+ * IANA zones offered in Settings.
+ *
+ * US only, because the listings are. London, Taipei and Tokyo were on this list
+ * and could never match an event — picking one scheduled a weekly email about
+ * shows thousands of miles away, delivered at a sensible local hour.
+ *
+ * Dropping them also tightens the send window the cron is built around: with
+ * New York the easternmost zone, every send lands on the same UTC day as the
+ * run. See wrangler.jsonc.
+ */
 export const TIMEZONES = [
   "America/New_York",
   "America/Chicago",
@@ -315,7 +329,38 @@ export const TIMEZONES = [
   "America/Los_Angeles",
   "America/Anchorage",
   "Pacific/Honolulu",
-  "Europe/London",
-  "Asia/Taipei",
-  "Asia/Tokyo",
 ] as const;
+
+/**
+ * A stored zone, pinned to the ones still offered.
+ *
+ * Same shape of problem as morningSendHour, and the same fix. Profiles predate
+ * the US-only list, so a row may still say Asia/Taipei — and a `<select>` whose
+ * value is not among its options silently displays the first one, which the
+ * next save would then write. Clamping on the way out keeps what is shown and
+ * what is stored in agreement.
+ *
+ * Sending is unaffected either way: sendInstantFor handles any IANA zone, so an
+ * untouched legacy profile keeps getting its email at the right local hour.
+ */
+export function supportedTimezone(zone: string): (typeof TIMEZONES)[number] {
+  return (TIMEZONES as readonly string[]).includes(zone)
+    ? (zone as (typeof TIMEZONES)[number])
+    : "America/New_York";
+}
+
+/**
+ * What to call each of those in a dropdown.
+ *
+ * The raw IANA name leaked to the reader — "America/New_York", underscore and
+ * all — which is a database key, not a thing anyone calls their timezone.
+ */
+export const TIMEZONE_LABELS: Record<(typeof TIMEZONES)[number], string> = {
+  "America/New_York": "Eastern — New York",
+  "America/Chicago": "Central — Chicago",
+  "America/Denver": "Mountain — Denver",
+  "America/Phoenix": "Mountain, no DST — Phoenix",
+  "America/Los_Angeles": "Pacific — Los Angeles",
+  "America/Anchorage": "Alaska — Anchorage",
+  "Pacific/Honolulu": "Hawaii — Honolulu",
+};

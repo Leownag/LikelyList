@@ -13,6 +13,7 @@ import {
   morningSendHour,
   nextWeekdayAt,
   sendInstantFor,
+  supportedTimezone,
   TIMEZONES,
   timeZoneOffsetMs,
   zonedTimeToUtc,
@@ -77,8 +78,8 @@ test("localParts and localDateString use the target zone, not the host", () => {
   assert.equal(parts.hour, 11);
 });
 
-// Tuesday 19:00 UTC: the weekly builder firing.
-const RUN_START = new Date("2026-08-04T19:00:00Z");
+// Wednesday 08:00 UTC: the weekly builder firing.
+const RUN_START = new Date("2026-08-05T08:00:00Z");
 
 test("sendInstantFor gives each subscriber their own local morning", () => {
   assert.equal(
@@ -89,11 +90,12 @@ test("sendInstantFor gives each subscriber their own local morning", () => {
     sendInstantFor(RUN_START, "America/Los_Angeles", 8).toISOString(),
     "2026-08-05T15:00:00.000Z",
   );
-  // Taipei is already into Wednesday when the builder fires, so its send is the
-  // nearest one — two hours out, not a week.
+  // A zone far enough east is already past its send hour when the builder
+  // fires. No longer offered in Settings, but the rule still has to hold:
+  // immediately sendable, not held for a week.
   assert.equal(
     sendInstantFor(RUN_START, "Asia/Taipei", 8).toISOString(),
-    "2026-08-05T00:00:00.000Z",
+    RUN_START.toISOString(),
   );
 });
 
@@ -119,8 +121,12 @@ test("a local morning already past when the run is built goes out at once", () =
   // Zones far enough ahead of UTC can be past their send hour by the time the
   // builder fires. Waiting a week would be worse than being a few hours late,
   // and the cached listings the job reads expire long before then.
-  const late = new Date("2026-08-04T22:00:00Z"); // 07:00 Wednesday in Tokyo
-  assert.equal(sendInstantFor(late, "Asia/Tokyo", 6).getTime(), late.getTime());
+  // A run driven by hand later in the day, after the morning has gone.
+  const late = new Date("2026-08-05T14:00:00Z"); // 10:00 Wednesday in New York
+  assert.equal(
+    sendInstantFor(late, "America/New_York", 6).getTime(),
+    late.getTime(),
+  );
 });
 
 test("a send hour outside the morning window is pinned back into it", () => {
@@ -136,9 +142,14 @@ test("a send hour outside the morning window is pinned back into it", () => {
 });
 
 test("digestRunDate is the Wednesday the run is for", () => {
-  // Built Tuesday evening UTC, for the Wednesday that follows.
+  // Built on the Wednesday morning it is for.
   assert.equal(
     digestRunDate(RUN_START).toISOString(),
+    "2026-08-05T00:00:00.000Z",
+  );
+  // And from the day before, it is still that Wednesday.
+  assert.equal(
+    digestRunDate(new Date("2026-08-04T19:00:00Z")).toISOString(),
     "2026-08-05T00:00:00.000Z",
   );
   // A retry after UTC midnight resumes the same run rather than opening a second.
@@ -215,4 +226,17 @@ test("an unusable onsale value yields no label rather than throwing", () => {
   assert.equal(formatInstantInZone(null, "America/New_York"), null);
   assert.equal(formatInstantInZone("not a date", "America/New_York"), null);
   assert.equal(formatInstantInZone("2026-08-08T14:00:00Z", "Etc/Nonsense"), null);
+});
+
+test("a stored timezone outside the offered list is pinned back into it", () => {
+  // Profiles predate the US-only list. A <select> whose value is not among its
+  // options displays the first one instead, and the next save writes that — so
+  // a Taipei profile would silently become Eastern without anyone choosing it.
+  assert.equal(supportedTimezone("America/Chicago"), "America/Chicago");
+  assert.equal(supportedTimezone("Asia/Taipei"), "America/New_York");
+  assert.equal(supportedTimezone("garbage"), "America/New_York");
+
+  // Sending is unaffected: the scheduler still honours whatever is stored.
+  const at = sendInstantFor(RUN_START, "Asia/Taipei", 8);
+  assert.ok(Number.isFinite(at.getTime()));
 });
