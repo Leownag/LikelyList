@@ -33,6 +33,11 @@ CLAUDE.md
 .cursorindexingignore
 .specstory/
 
+# Internal handoff notes. A state document — what is verified, what is not, and
+# which mistakes have already been made — written for whoever picks this up, not
+# for a reader of the repository. Kept on disk, out of the repo.
+docs/PROGRESS.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*
