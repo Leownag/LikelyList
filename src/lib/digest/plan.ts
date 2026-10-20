@@ -226,7 +226,7 @@ export async function planWeeklyDigest(
       });
 
       const rows = dedupeByEventId([...events, ...onsale])
-        .filter(isSendableEvent)
+        .filter((event) => isSendableEvent(event))
         .map((event) => toCachedEvent(event, cell.key, expiresAt));
 
       if (rows.length > 0) {

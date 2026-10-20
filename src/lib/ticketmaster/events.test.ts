@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { toCachedEvent } from "./events";
+import { isSendableEvent, toCachedEvent } from "./events";
 import type { TmEvent } from "./types";
 
 const EXPIRES = new Date("2026-08-09T00:00:00Z");
@@ -74,4 +74,38 @@ test("the cached row carries a zone, so a pin from the feed can become a real in
 
   // Nothing anywhere: null, not a guess.
   assert.equal(toCachedEvent(event(), CELL, EXPIRES).timezone, null);
+});
+
+test("an event whose ticket sales have closed is not offered", () => {
+  // The symptom this comes from: a listing whose "buy tickets" link opened a
+  // Ticketmaster page reading TICKET SALES TERMINATED. The one action the
+  // product offers was already unavailable.
+  const now = new Date("2026-10-20T12:00:00Z");
+  const base = {
+    id: "x",
+    name: "Show",
+    dates: { start: { localDate: "2026-10-25" } },
+  };
+
+  assert.equal(
+    isSendableEvent(
+      { ...base, sales: { public: { endDateTime: "2026-10-19T00:00:00Z" } } },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    isSendableEvent(
+      { ...base, sales: { public: { endDateTime: "2026-10-24T00:00:00Z" } } },
+      now,
+    ),
+    true,
+  );
+  // No sales block at all is the common case and says nothing either way.
+  assert.equal(isSendableEvent(base, now), true);
+  // Neither does a value that will not parse.
+  assert.equal(
+    isSendableEvent({ ...base, sales: { public: { endDateTime: "soon" } } }, now),
+    true,
+  );
 });

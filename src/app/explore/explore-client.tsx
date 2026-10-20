@@ -254,22 +254,21 @@ export function ExploreClient({
           </div>
 
           {/*
-            Advanced search, and only now.
-            Distance is the one control that cannot be judged in advance: fifty miles
-            is generous in New England and barely leaves the county in Texas. Showing
-            it beside a result count turns it into a question the reader can actually
-            answer — "85 shows, want to look further?" — and it also explains where
-            the search was centred, which is the only way a mistyped ZIP is ever
-            noticed.
+            Distance, shown once there is a result and no longer folded away.
+            It cannot be judged in advance — fifty miles is generous in New England
+            and barely leaves the county in Texas — so it only becomes a question the
+            reader can answer next to a count: "98 shows, want to look further?".
+            It was behind a <details> labelled "Advanced", which is where a control
+            goes to be ignored, and the explanation beneath it was about how
+            Ticketmaster's API behaves rather than about what the reader gets.
           */}
           {result.radiusMiles ? (
-            <details className="mt-3 border border-border bg-surface-raised">
-              <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-text">
-                Advanced — searching within {result.radiusMiles} miles
-                {result.placeLabel ? ` of ${result.placeLabel}` : ""}
-              </summary>
-              <div className="border-t border-border px-3 py-3">
-                <Label>Distance</Label>
+            <div className="mt-3 border border-border bg-surface-raised">
+              <div className="px-3 py-3">
+                <Label>
+                  How far to look — within {result.radiusMiles} miles
+                  {result.placeLabel ? ` of ${result.placeLabel}` : ""}
+                </Label>
                 <div className="flex flex-wrap gap-1.5">
                   {RADIUS_CHOICES.map((miles) => {
                     const active = miles === result.radiusMiles;
@@ -299,12 +298,12 @@ export function ExploreClient({
                   })}
                 </div>
                 <p className="mt-2 text-xs text-faint">
-                  Ticketmaster only honours a radius around a point, so this is what
-                  actually decides how much you see — a city name on its own matches
-                  the venue&apos;s own city field and misses the next town over.
+                  Fifty miles is generous in New England and barely leaves the
+                  county in Texas, so this is worth changing. It also shows where
+                  the search was centred, which is how a mistyped ZIP gets noticed.
                 </p>
               </div>
-            </details>
+            </div>
           ) : null}
 
           <PixelRule className="mt-3" />
