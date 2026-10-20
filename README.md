@@ -698,6 +698,46 @@ curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=0+8+*+*+3"
 
 ## Verifying it end to end
 
+Four layers, each covering something the others structurally cannot. They exist
+in this shape because a round of manual testing found defects that the existing
+suite could never have caught, and the reason in each case was a gap in *kind*,
+not in quantity.
+
+| Layer | Command | Catches what nothing else can |
+| --- | --- | --- |
+| Unit | `npm test` | Logic, and copy consistency across surfaces no browser reaches |
+| Smoke | `npm run smoke [url]` | Whether the deploy shipped this commit at all |
+| Walk (dev) | `npm run test:ui` | Flows, against a server you can break safely |
+| Walk (prod) | `npm run test:ui:prod` | Code paths that only exist in production |
+
+**The deploy runs smoke itself.** `npm run deploy` builds with `BUILD_SHA` set,
+deploys, then checks `/api/health` against local `HEAD`. Cloudflare reports
+success as soon as it accepts an upload, which says nothing about what was
+uploaded — a release once deployed cleanly from a branch that had never been
+merged, and the previous build stayed live.
+
+**Some things are only true in production.** `isDevMode` returns `true`
+unconditionally outside it, by design, so anything gated on it cannot be
+exercised against `npm run dev` — which is how a panel gated too broadly turned
+"Build it now" into a button that locked itself for three minutes and said
+nothing. `npm run test:ui:prod` runs the same walk against the live site; it
+creates and deletes its own throwaway account and spends a little Ticketmaster
+quota.
+
+**Some things no browser can see.** The sign-in and confirmation emails are
+rendered by Supabase from templates pasted into its dashboard. A sweep that
+updated every string under `src/` left those saying Friday while the app said
+Wednesday. `scripts/copy-weekday.test.ts` reads the template files directly and
+asserts every surface names the day `DIGEST_WEEKDAY` holds.
+
+**Some states need a past.** The walk used to run entirely against an account
+created seconds earlier, so screens that only appear with history — a show that
+has already happened, a screenshot that was applied — were never reached, and
+two defects lived there. It now seeds its own past rather than borrowing a real
+account.
+
+Then the two that need real credentials:
+
 Start here, as soon as the keys exist:
 
 ```bash

@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.1.3 — 2026-10-20
+
+Testing, shaped by what got through. Each layer covers something the others
+structurally cannot.
+
+- **`/api/health` reports the commit it was built from**, and `npm run deploy`
+  now checks it. Cloudflare reports success as soon as it accepts an upload,
+  which says nothing about what was uploaded — a release deployed cleanly from
+  an unmerged branch and the previous build stayed live for an hour.
+- **`npm run smoke [url]`** — seventeen read-only checks against the live site,
+  no login, a few seconds.
+- **`npm run test:ui:prod`** runs the Playwright walk against production.
+  `isDevMode` returns true unconditionally outside production, so anything
+  gated on it is unreachable from a dev server.
+- **A copy-consistency test** reads the Supabase email templates directly.
+  Nothing that drives a browser can see them; a sweep missed them, and the
+  sign-in email offered to stop "the Friday email".
+- **The walk seeds its own history.** It ran entirely against accounts created
+  seconds earlier, so screens that need a past were never reached.
+
+Fixed by the last of those: an applied screenshot that contributed a genre and
+no names reported "Applied · 0 artists", while the genre grid on the same page
+credited that feed.
+
 ## 1.1.2 — 2026-10-20
 
 Two of these are regressions from 1.1.0, found by a pass over the deployed site.
