@@ -12,7 +12,7 @@ import {
 /**
  * The other half of the pipeline: actually send the queued emails.
  *
- * This runs every five minutes rather than once on Friday, which buys three
+ * This runs every five minutes rather than once a week, which buys three
  * things at once:
  *
  *  - It is self-healing. A Worker invocation that dies partway through leaves

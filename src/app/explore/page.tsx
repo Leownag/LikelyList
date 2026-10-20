@@ -48,7 +48,7 @@ export default async function ExplorePage() {
           <p className="mt-3 text-sm leading-relaxed text-muted">
             Pick a city or type a ZIP code, narrow it by genre, and see the next
             seven days. Nothing is emailed, nothing is saved — this is just the
-            same data the Friday digest is built from.
+            same data the Wednesday digest is built from.
           </p>
         </div>
         <PixelMosaic

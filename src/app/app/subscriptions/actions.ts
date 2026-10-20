@@ -203,7 +203,7 @@ export async function saveSelections(input: {
  * How many towns outside the curated list one reader may follow.
  *
  * Not a preference — a cost. The planner makes one Ticketmaster call per distinct
- * grid cell each week against a 5000/day budget the Friday send shares, so an
+ * grid cell each week against a 5000/day budget the weekly send shares, so an
  * unbounded follow list is a way for one account to spend everyone's quota. The
  * curated grid is bounded by being a list of 43; this path is open to 32,329 places
  * and needs its own ceiling.

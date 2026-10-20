@@ -1,6 +1,12 @@
 import { requireProfile } from "@/lib/supabase/server";
 import { Button, Card, Label, Notice, SectionHeading, Select } from "@/components/ui";
-import { TIMEZONES, nextWeekdayAt } from "@/lib/time";
+import {
+  DIGEST_SEND_HOURS,
+  DIGEST_WEEKDAY,
+  TIMEZONES,
+  morningSendHour,
+  nextWeekdayAt,
+} from "@/lib/time";
 import { deleteAccount, updateSchedule } from "./actions";
 import { DeleteAccount } from "./delete-account";
 import { getI18n, getT } from "@/lib/i18n/server";
@@ -10,17 +16,20 @@ export async function generateMetadata() {
   return { title: (await getT())("title.settings") };
 }
 
-const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-
 export default async function SettingsPage() {
   const { profile } = await requireProfile();
   const { locale, t } = await getI18n();
 
+  // Clamped for display as well as for sending, so the select cannot fall back
+  // to its first option on a profile whose stored hour predates the morning
+  // window and then silently save that instead.
+  const sendHour = morningSendHour(profile.digest_send_hour);
+
   const nextSend = nextWeekdayAt(
     new Date(),
     profile.timezone,
-    5,
-    profile.digest_send_hour,
+    DIGEST_WEEKDAY,
+    sendHour,
   );
 
   return (
@@ -52,9 +61,9 @@ export default async function SettingsPage() {
                 <Select
                   id="digest_send_hour"
                   name="digest_send_hour"
-                  defaultValue={String(profile.digest_send_hour)}
+                  defaultValue={String(sendHour)}
                 >
-                  {HOURS.map((hour) => (
+                  {DIGEST_SEND_HOURS.map((hour) => (
                     <option key={hour} value={hour}>
                       {formatHour(hour, locale)}
                     </option>

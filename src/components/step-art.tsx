@@ -121,7 +121,7 @@ export function StepFeed() {
 }
 
 /**
- * Step 3 — an envelope with a pixel stamp: the Friday email.
+ * Step 3 — an envelope with a pixel stamp: the Wednesday email.
  */
 export function StepEmail() {
   return (

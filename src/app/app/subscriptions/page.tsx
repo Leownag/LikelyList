@@ -123,7 +123,7 @@ export default async function SubscriptionsPage({
 
       {subscribed ? (
         <Notice tone="success">
-          You&apos;re subscribed and signed in. Your first digest arrives Friday
+          You&apos;re subscribed and signed in. Your first digest arrives Wednesday
           morning — everything below is what it covers.
         </Notice>
       ) : null}

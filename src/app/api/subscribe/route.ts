@@ -30,7 +30,7 @@ const BodySchema = z.object({
    *
    * buildDigest filters on genre weight and followed artists, and an anonymous
    * subscriber has no artists — so a subscription with no genre produces a
-   * technically-correct empty email every Friday for as long as it exists. One
+   * technically-correct empty email every Wednesday for as long as it exists. One
    * required tap here is the whole difference between a working subscription and
    * a broken one.
    */

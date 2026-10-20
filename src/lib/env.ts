@@ -68,7 +68,7 @@ export function readEnv(raw: RawEnv = process.env as RawEnv): AppEnv {
     feedDailyUploadLimit: int(raw, "FEED_DAILY_UPLOAD_LIMIT", 20),
     // Typing into the artist box spends Ticketmaster's 5000/day event quota, one
     // call per keystroke burst. Per-user rather than project-wide, so one person
-    // exploring cannot starve everyone else's Friday send.
+    // exploring cannot starve everyone else's weekly send.
     artistDailySearchLimit: int(raw, "ARTIST_DAILY_SEARCH_LIMIT", 60),
     // Absent is a supported state: the connect button hides and nothing else changes.
     spotifyClientId: optional(raw, "SPOTIFY_CLIENT_ID"),
@@ -76,7 +76,7 @@ export function readEnv(raw: RawEnv = process.env as RawEnv): AppEnv {
     youtubeApiKey: optional(raw, "YOUTUBE_API_KEY"),
     // Ticketmaster's own cap is 100 search.list calls/day for the whole
     // project. Default a little under it so a manual test run cannot exhaust
-    // the budget the Friday digest needs.
+    // the budget the weekly digest needs.
     youtubeDailySearchLimit: int(raw, "YOUTUBE_DAILY_SEARCH_LIMIT", 90),
     resendApiKey: optional(raw, "RESEND_API_KEY"),
     // "LikelyList", capitalised, because this string is the sender name an inbox

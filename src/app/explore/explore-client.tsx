@@ -220,7 +220,7 @@ export function ExploreClient({
             </p>
             {result.events.length > 0 ? (
               <Button variant="outline" onClick={() => setShowSubscribe(true)}>
-                Email me this every Friday
+                Email me this every Wednesday
               </Button>
             ) : null}
           </div>

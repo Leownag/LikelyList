@@ -105,7 +105,7 @@ export async function requestSubscription(
   // Both of these are the same failure: a subscription that confirms cleanly and then
   // produces nothing. Without a point the planner has nowhere to search, and without a
   // genre buildDigest filters everything out — so either one would mean an account that
-  // gets silence every Friday. The Zod schema cannot catch them: it sees a non-empty
+  // gets silence every Wednesday. The Zod schema cannot catch them: it sees a non-empty
   // array and a well-shaped ZIP, not whether they name anything that exists here.
   if (!place) {
     return {
