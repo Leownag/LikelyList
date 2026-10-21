@@ -19,14 +19,17 @@ export function DigestOnTheWay({
   nextSendLabel,
   paused,
   diagnostics = false,
+  scope,
 }: {
   nextSendLabel: string;
   paused: boolean;
+  /** The account, so one reader's cooldown is not another's. */
+  scope?: string;
   /** Operator-facing byte sizes; off unless dev mode is on for this browser. */
   diagnostics?: boolean;
 }) {
   const t = useT();
-  const { busy, summary, cooldownSeconds, run } = useDigestBuild();
+  const { busy, summary, cooldownSeconds, run } = useDigestBuild({ scope });
 
   return (
     <div className="border border-accent/40 bg-surface/60 p-5 backdrop-blur-sm">

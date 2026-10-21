@@ -159,14 +159,14 @@ async function loadPickers(): Promise<{
  * somebody else's. Null on any failure: this block is a nicety, and the page still
  * has a subscribe box to fall back to.
  */
-type Schedule = Pick<Profile, "timezone" | "digest_send_hour" | "digest_enabled">;
+type Schedule = Pick<Profile, "id" | "timezone" | "digest_send_hour" | "digest_enabled">;
 
 async function loadSchedule(): Promise<Schedule | null> {
   try {
     const supabase = await createClient();
     const { data } = await supabase
       .from("profiles")
-      .select("timezone, digest_send_hour, digest_enabled")
+      .select("id, timezone, digest_send_hour, digest_enabled")
       .maybeSingle<Schedule>();
     return data;
   } catch {
@@ -257,6 +257,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
                 nextSendLabel={nextDigestLabel(profile, locale)}
                 paused={!profile.digest_enabled}
                 diagnostics={diagnostics}
+                scope={profile.id}
               />
             </div>
           ) : /* Both lists are required: the box asks for a city and at least one
