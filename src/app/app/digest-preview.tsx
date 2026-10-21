@@ -19,8 +19,15 @@ import { DigestSummaryPanel, useDigestBuild } from "@/components/digest-build";
  * operating this and says things like "10.6 KB · under Gmail's clip limit" and
  * "DELIVERED: not sent". The caller decides, from the dev-mode cookie.
  */
-export function DigestPreview({ diagnostics = false }: { diagnostics?: boolean }) {
-  const { busy, summary, cooldownSeconds, run } = useDigestBuild();
+export function DigestPreview({
+  diagnostics = false,
+  scope,
+}: {
+  diagnostics?: boolean;
+  /** The account, so one reader's cooldown is not another's. */
+  scope?: string;
+}) {
+  const { busy, summary, cooldownSeconds, run } = useDigestBuild({ scope });
   const [confirmingSend, setConfirmingSend] = useState(false);
   const blocked = busy !== null || cooldownSeconds > 0;
 

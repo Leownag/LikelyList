@@ -100,8 +100,12 @@ export function ToggleGrid({
                   </span>
                 ) : null}
                 {item.label}
+                {/* The comma is part of the text, not a margin. Spacing it with
+                    ml-1.5 alone looked right and read as "BostonMA" to anything
+                    that takes the text rather than the pixels — innerText, a
+                    copy-paste, a screen reader. */}
                 {item.sublabel ? (
-                  <span className="ml-1.5 opacity-60">{item.sublabel}</span>
+                  <span className="opacity-60">{`, ${item.sublabel}`}</span>
                 ) : null}
                 {item.inferred && isSelected ? (
                   <span className="ml-1.5 opacity-70">·feed</span>

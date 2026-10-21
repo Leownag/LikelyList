@@ -28,9 +28,21 @@ const COOLDOWN_MS = 180_000;
  */
 const READY_AT_KEY = "likelylist:digest-ready-at";
 
-function secondsLeft(): number {
+/**
+ * One deadline per account, not one per browser.
+ *
+ * The server counts this per user (bump_usage keys on the user id), but the
+ * client kept a single localStorage entry — so building on one account left a
+ * second account in the same browser staring at "ready again in 73s" for a
+ * request the server would have accepted.
+ */
+function readyAtKey(scope: string | undefined): string {
+  return scope ? `${READY_AT_KEY}:${scope}` : READY_AT_KEY;
+}
+
+function secondsLeft(scope?: string): number {
   if (typeof window === "undefined") return 0;
-  const readyAt = Number(window.localStorage.getItem(READY_AT_KEY));
+  const readyAt = Number(window.localStorage.getItem(readyAtKey(scope)));
   if (!Number.isFinite(readyAt)) return 0;
   return Math.max(0, Math.ceil((readyAt - Date.now()) / 1000));
 }
@@ -42,7 +54,7 @@ function secondsLeft(): number {
  * because they hit the same route and therefore share one cooldown — two independent
  * timers would each let the other's window through.
  */
-export function useDigestBuild() {
+export function useDigestBuild({ scope }: { scope?: string } = {}) {
   const [busy, setBusy] = useState<"build" | "send" | null>(null);
   const [summary, setSummary] = useState<DigestSummary | null>(null);
   // Zero on the server and on the first client render, so the two agree; the deadline
@@ -51,7 +63,7 @@ export function useDigestBuild() {
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
   useEffect(() => {
-    const tick = () => setCooldownSeconds(secondsLeft());
+    const tick = () => setCooldownSeconds(secondsLeft(scope));
     // A 1/s no-op while idle, which is cheaper than the alternative: an interval that
     // only starts when the countdown does cannot show one that was already running
     // when the page loaded.
@@ -61,7 +73,7 @@ export function useDigestBuild() {
       clearTimeout(immediate);
       clearInterval(timer);
     };
-  }, []);
+  }, [scope]);
 
   const run = useCallback(async (send: boolean) => {
     setBusy(send ? "send" : "build");
@@ -78,8 +90,8 @@ export function useDigestBuild() {
       const until =
         Date.now() +
         (payload.retryAfterSeconds ? payload.retryAfterSeconds * 1000 : COOLDOWN_MS);
-      window.localStorage.setItem(READY_AT_KEY, String(until));
-      setCooldownSeconds(secondsLeft());
+      window.localStorage.setItem(readyAtKey(scope), String(until));
+      setCooldownSeconds(secondsLeft(scope));
     } catch (error) {
       setSummary({
         error: error instanceof Error ? error.message : "Request failed.",
@@ -87,7 +99,7 @@ export function useDigestBuild() {
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [scope]);
 
   return { busy, summary, cooldownSeconds, run };
 }
