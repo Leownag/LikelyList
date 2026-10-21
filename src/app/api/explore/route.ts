@@ -101,11 +101,17 @@ const BodySchema = z
  * with the first row on screen — the header said the 20th above a row dated the
  * 19th.
  *
- * Anchored on the earliest row rather than on the *range* of rows, which was the
- * previous attempt and under-reported in the other direction: results are
- * date-ordered and capped at one page, so a busy city's rows stop short of the
- * week and the header shrank to match. The window is seven days; whether the
- * rows fill it is what `truncated` is for.
+ * Two earlier attempts were both wrong, in opposite directions, and for the same
+ * reason: the search is bounded by UTC instants while every row is labelled with
+ * a venue's local date, and those do not line up. Computing the range in UTC put
+ * the 19th under a header that said the 20th. Anchoring on the first row and
+ * adding six days then put the 27th under a header that said the 26th, because a
+ * seven-day span of instants touches eight local days.
+ *
+ * So the window is simply what came back. Stated that way it cannot disagree
+ * with the list beneath it, which is the only property that matters here. That
+ * the rows may stop short of a full week is a different fact, and `truncated`
+ * is what carries it.
  */
 function searchedWindow(events: TmEvent[], fallbackStart: Date): string {
   const dates = events
@@ -113,10 +119,11 @@ function searchedWindow(events: TmEvent[], fallbackStart: Date): string {
     .filter((date): date is string => Boolean(date))
     .sort();
 
-  const start = dates[0] ?? localDateString("UTC", fallbackStart);
-  const [year, month, day] = start.split("-").map(Number);
-  const end = new Date(Date.UTC(year, month - 1, day + 6));
-  return `${start} … ${localDateString("UTC", end)}`;
+  if (dates.length === 0) {
+    const only = localDateString("UTC", fallbackStart);
+    return `${only} … ${only}`;
+  }
+  return `${dates[0]} … ${dates[dates.length - 1]}`;
 }
 
 export async function POST(request: NextRequest) {
