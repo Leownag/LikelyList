@@ -142,10 +142,14 @@ export function FollowedPlaces({ places }: { places: FollowedPlace[] }) {
               key={place.id}
               className="flex items-center gap-2 border border-border bg-surface-raised px-3 py-1.5 text-xs"
             >
-              <span className="text-text">{place.name}</span>
-              {place.stateCode ? (
-                <span className="font-mono text-faint">{place.stateCode}</span>
-              ) : null}
+              {/* One flex child: the row's gap-2 is for the × button, not for
+                  splitting a place from its own state code. */}
+              <span className="text-text">
+                {place.name}
+                {place.stateCode ? (
+                  <span className="font-mono text-faint">{`, ${place.stateCode}`}</span>
+                ) : null}
+              </span>
               <button
                 type="button"
                 onClick={() => remove(place.id)}

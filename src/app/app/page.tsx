@@ -210,12 +210,14 @@ export default async function OverviewPage() {
                   <PixelDot size={6} />
                   {/* The stored label first: a subscription to a Census place has no
                       curated city row to read a name from. */}
+                  {/* One flex child, so the row's gap-2 separates the dot
+                      from the label and not the label from its own state. */}
                   <span>
                     {subscription.name ?? t("overview.cities.unnamed")}
+                    {subscription.state ? (
+                      <span className="text-faint">{`, ${subscription.state}`}</span>
+                    ) : null}
                   </span>
-                  {subscription.state ? (
-                    <span className="text-faint">{subscription.state}</span>
-                  ) : null}
                 </li>
               ))}
             </ul>
@@ -307,7 +309,7 @@ export default async function OverviewPage() {
           {t("overview.try.heading")}
         </SectionHeading>
         <Card className="p-5">
-          <DigestPreview diagnostics={diagnostics} />
+          <DigestPreview diagnostics={diagnostics} scope={userId} />
         </Card>
       </section>
 

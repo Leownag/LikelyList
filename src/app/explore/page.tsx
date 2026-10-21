@@ -41,7 +41,7 @@ export default async function ExplorePage() {
 
       <section className="mt-14 flex items-start justify-between gap-8">
         <div className="max-w-xl">
-          <p className="label-pixel">no account needed</p>
+          <p className="label-pixel">no password, no signup form</p>
           <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">
             What&apos;s on this week
           </h1>

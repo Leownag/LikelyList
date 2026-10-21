@@ -255,7 +255,7 @@ export function SubscriptionEditor({
             <span className="flex items-center gap-1.5">
               <PixelDot size={6} color="var(--pixel-3)" /> unsaved change
             </span>
-            <span>·feed = inferred from a screenshot you added</span>
+            <span>·feed = inferred from one of your screenshots</span>
           </div>
         </Card>
       </section>

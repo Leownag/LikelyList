@@ -166,7 +166,7 @@ export function AnonymousSubscribe({
       onSubmit={submit}
       className="border border-border-strong/70 bg-surface/50 p-5 backdrop-blur-sm"
     >
-      <p className="label-pixel">no account needed</p>
+      <p className="label-pixel">no password, no signup form</p>
 
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <input

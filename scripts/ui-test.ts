@@ -881,6 +881,46 @@ async function main() {
       return `${cityName} + ${genreName}`;
     });
 
+    await check("a place reads as a place wherever it is shown", async () => {
+      // Three surfaces rendered a name and a state code as separate elements
+      // spaced with CSS. That looks right and reads as "BostonMA" to anything
+      // taking the text rather than the pixels — innerText, a copy-paste, a
+      // screen reader — and each surface had glued them differently.
+      //
+      // Asserting on text is the whole point: a pixel-level check would have
+      // passed on all three.
+      const glued = /[a-z][A-Z]{2}\b/;
+      const surfaces: [string, string, string][] = [
+        ["/app", "main ul li", "the overview list"],
+        ["/app/subscriptions", "#cities button[aria-pressed]", "the city chips"],
+      ];
+      const seen: string[] = [];
+
+      for (const [path, selector, label] of surfaces) {
+        await go(app, path);
+        const rows = app.locator(selector);
+        const count = await rows.count();
+        if (count === 0) {
+          seen.push(`${label}: none`);
+          continue;
+        }
+
+        let checked = 0;
+        for (let i = 0; i < Math.min(count, 12); i++) {
+          const text = (await rows.nth(i).innerText()).replace(/\s+/g, " ").trim();
+          if (!text) continue;
+          assert(
+            !glued.test(text),
+            `${label} rendered "${text}" — a state code glued to a name`,
+          );
+          checked += 1;
+        }
+        seen.push(`${label}: ${checked} ok`);
+      }
+
+      return seen.join(" · ");
+    });
+
     await check("the app nav says which section you are in", async () => {
       await go(app, "/app/pinned");
       const current = app.locator('nav a[aria-current="page"]');
@@ -1065,8 +1105,22 @@ async function main() {
       await shot(app, "pinned");
 
       // And back out again, so the page ends where it started.
-      await app.getByRole("button", { name: "Pinned", exact: true }).first().click();
-      await app.waitForTimeout(1500);
+      //
+      // Targeted at the card that carries the title rather than "the first
+      // Pinned button on the page": this check no longer runs against an empty
+      // Pinned page, because the history fixtures above put two more there.
+      // Waiting for the button to read "Pin" also replaces a fixed 1500ms,
+      // which was waiting for a server action with a stopwatch.
+      const pinnedCard = app
+        .locator("main li")
+        .filter({ hasText: title })
+        .first();
+      await pinnedCard.getByRole("button", { name: "Pinned", exact: true }).click();
+      // unpinEvent revalidates /app/pinned, so the card leaves the list rather
+      // than flipping its button back. Waiting for it to go is both the right
+      // signal and the one that proves the write landed.
+      await pinnedCard.waitFor({ state: "detached", timeout: 20_000 });
+
       await go(app, "/app/pinned");
       const afterUnpin = await app.locator("main").innerText();
       assert(
