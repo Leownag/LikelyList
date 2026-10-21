@@ -51,9 +51,12 @@ type Instants = {
 /**
  * The event as real instants, or null when the date cannot be parsed.
  *
- * Falls back to UTC when the zone is missing rather than to the server's own zone: a
- * Cloudflare worker's local time is meaningless, and UTC at least fails in a way that
- * is the same everywhere instead of depending on which datacentre answered.
+ * Without a zone there is no instant to resolve, so no time is claimed: the entry
+ * becomes all-day on the venue's own date. This used to fall back to UTC, which
+ * produced a confident and wrong answer — an 8pm Boston show landed in a calendar
+ * at 4pm, which is the exact failure this file exists to prevent, four hours in
+ * the other direction. A pin made before events_cache carried a zone still has
+ * none, so this is reachable rather than theoretical.
  */
 function resolveInstants(event: CalendarEvent): Instants | null {
   const [year, month, day] = event.localDate.split("-").map(Number);
@@ -61,7 +64,7 @@ function resolveInstants(event: CalendarEvent): Instants | null {
 
   const zone = event.timezone || "UTC";
 
-  if (!event.localTime) {
+  if (!event.localTime || !event.timezone) {
     // All-day. Start at local midnight, end at the next one — iCalendar and Google
     // both treat the end of an all-day range as exclusive.
     const start = zonedTimeToUtc(zone, year, month, day, 0);
