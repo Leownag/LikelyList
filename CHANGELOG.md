@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.5 — 2026-10-20
+
+- **A place read as "BostonMA".** Three surfaces spaced a name and its state
+  code with CSS rather than a character, so anything reading the text — a
+  copy-paste, a screen reader — got them glued, differently on each surface.
+- **The build cooldown was per browser, not per account.** The server counts it
+  per user; the client kept one localStorage deadline for all of them.
+- **"NO ACCOUNT NEEDED" sat next to a Sign in link.** There is an account; what
+  is true is that there is no password and no form.
+- The genre legend pointed at "a screenshot you added" when provenance is only
+  recorded as "a feed" — which made an unreadable screenshot look like it had
+  still inferred something.
+
 ## 1.1.4 — 2026-10-20
 
 - **Everyone who signed in was in Eastern.** `profiles.timezone` defaults to
