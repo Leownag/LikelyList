@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.7 — 2026-10-21
+
+`npm run schedule:check` — the timezone path, end to end against the real
+database. The arithmetic was already covered and so was the UI; the join was
+not, and that is the part that decides when an email arrives. A throwaway
+account per zone and send hour, each asserted to land on its own local
+Wednesday morning, plus a job a year out proving the drainer holds it. Prints
+the week's release order.
+
 ## 1.1.6 — 2026-10-21
 
 Timezone correctness, gone over deliberately because it decides when an email

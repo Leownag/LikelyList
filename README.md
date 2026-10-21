@@ -709,6 +709,7 @@ not in quantity.
 | Smoke | `npm run smoke [url]` | Whether the deploy shipped this commit at all |
 | Walk (dev) | `npm run test:ui` | Flows, against a server you can break safely |
 | Walk (prod) | `npm run test:ui:prod` | Code paths that only exist in production |
+| Schedule | `npm run schedule:check` | Whether each timezone is actually queued for its own morning |
 
 **The deploy runs smoke itself.** `npm run deploy` builds with `BUILD_SHA` set,
 deploys, then checks `/api/health` against local `HEAD`. Cloudflare reports
@@ -729,6 +730,20 @@ rendered by Supabase from templates pasted into its dashboard. A sweep that
 updated every string under `src/` left those saying Friday while the app said
 Wednesday. `scripts/copy-weekday.test.ts` reads the template files directly and
 asserts every surface names the day `DIGEST_WEEKDAY` holds.
+
+**Timezones need the database in the loop.** The arithmetic is unit-tested
+exhaustively — 252 combinations across a DST year — but the thing that decides
+when mail goes out is a zone stored in Postgres, read back by the planner,
+turned into a `send_after`, and held by the drainer's claim predicate.
+`npm run schedule:check` exercises that join: a throwaway account per zone and
+send hour, each asserted to land on its own local Wednesday morning, plus a job
+a year out proving the drainer holds it. It prints the week's release order, so
+the span from New York to Honolulu is something you can read rather than infer.
+
+It deliberately does not call `planWeeklyDigest` — that enqueues for every
+enabled subscriber and opens a run row — and it never inserts a job that is
+already due, because `claim_digest_jobs` scans the whole table and the next
+production drain pass would send it for real.
 
 **Some states need a past.** The walk used to run entirely against an account
 created seconds earlier, so screens that only appear with history — a show that

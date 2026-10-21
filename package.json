@@ -1,6 +1,6 @@
 {
   "name": "likelylist",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,6 +19,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "preflight": "tsx --env-file=.env.local scripts/preflight.ts",
     "security:check": "tsx --env-file=.env.local scripts/security-check.ts",
+    "schedule:check": "tsx --env-file=.env.local scripts/schedule-check.ts",
     "tm:probe": "tsx --env-file=.env.local scripts/tm-probe.ts",
     "seed:places": "tsx --env-file=.env.local scripts/seed-places.ts",
     "seed:genres": "tsx --env-file=.env.local scripts/seed-genres.ts",
