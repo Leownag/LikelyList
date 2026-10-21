@@ -172,10 +172,13 @@ at all, so an explicit opt-out always survives a later screenshot.
 
 ### Public surface
 
-`/`, `/explore`, `/privacy` and the subscribe flow need no account. Because they
-spend Ticketmaster quota and send mail, each carries its own limit: a daily budget
-plus a per-visitor hourly cap keyed on a truncated HMAC of the caller's IP, and
-double opt-in before any address enters the send list.
+`/`, `/explore`, `/privacy` and the subscribe flow need no account, and each is
+limited by what it spends. The search paths spend Ticketmaster quota: `/api/explore`
+and `/api/places/search` carry a daily budget plus a per-visitor hourly cap keyed on
+a truncated HMAC of the caller's IP (`lib/visitor.ts`). The subscribe path sends
+mail, so it is capped per address — at most three confirmation emails to any one
+address — under a daily project-wide ceiling, with double opt-in before any address
+enters the send list. It has no per-IP cap of its own.
 
 Links arriving from an inbox — unsubscribe, subscribe-confirm, digest preview —
 carry an HMAC token instead of a session (`lib/tokens.ts`), because a mail client's
@@ -939,14 +942,41 @@ transcribe — never as an instruction — so a screenshot cannot direct the sys
 
 ## Launch checklist
 
-Ordered so nothing waits on something later in the list.
+Split by what can be proved from outside and what cannot. A box is ticked only
+where there is evidence anyone can re-run; everything else needs a person with the
+dashboards and an inbox, and is left open rather than assumed.
 
-- [ ] Workers Paid active on the Cloudflare account
-- [ ] Nameservers pointed at Cloudflare, zone shows **Active**
-- [ ] DNSSEC disabled at the registrar *before* the nameserver switch
-- [ ] Migrations `0001`–`0014` all applied
-- [ ] `npm run seed:cities`, `npm run seed:genres` and `npm run seed:places` run
+### Confirmed — re-checked 2026-10-21, against the live site
+
+- [x] Workers Paid active — a `*/5 * * * *` trigger is below the one-hour floor the
+      free plan allows, and it is running
+- [x] Nameservers at Cloudflare, zone **Active**, custom domain bound, `/privacy`
+      reachable — the apex serves the app, which is also what says the registrar
+      migration (DNSSEC off first) went through
+- [x] Migrations `0001`–`0017` all applied — the live place search matches on a word
+      that is not the first, which only the `0017` trigram index can do
+- [x] `npm run seed:cities`, `npm run seed:genres` and `npm run seed:places` run —
+      place search returns curated rows ordered by distance
+- [x] Built with production environment values — the live `robots.txt` carries
+      `Host: https://likelylist.tech`, so `NEXT_PUBLIC_SITE_URL` was not localhost at
+      build time
+- [x] `/robots.txt` disallows `/preview/` and `/unsubscribe`
+- [x] `npm run typecheck && npm run lint && npm test` clean — 215 / 215
+- [x] `npm run smoke` clean against `https://likelylist.tech` — 18 / 18, including
+      that the deployed commit is the local one
+
+### Still to confirm by hand
+
+Nothing here is known to be broken — it is what the repository cannot see.
+
+Not a task, so it has no box: password sign-in cannot be disabled separately from
+magic links, and neither the Email provider nor "Allow new users to sign up" may be
+switched off. That is deliberate — see *Accounts* above.
+
 - [ ] YouTube Data API v3 enabled and its key set (no OAuth client needed)
+- [ ] All secrets pushed with `wrangler secret put`. The live site proves the
+      Supabase and Ticketmaster ones; OpenAI, Resend and YouTube are only exercised
+      by `npm run preflight`
 - [ ] ⚠️ **Supabase Auth → SMTP set to Resend.** The built-in sender is rate
       limited to a handful of messages an hour, and sign-in links are now the only
       way in — a throttled one is a lockout, not a delay
@@ -966,9 +996,6 @@ Ordered so nothing waits on something later in the list.
       with an address that has **no** password (one created by anonymous
       subscribe), and once with an address Supabase has **never seen**, which
       exercises the "Confirm sign up" template
-- [ ] Left alone on purpose: password sign-in cannot be disabled separately from
-      magic links, and neither the Email provider nor "Allow new users to sign up"
-      may be switched off — see *Accounts* above
 - [ ] Sending subdomain verified in Resend, SPF + DKIM + DMARC in Cloudflare
       DNS, every CNAME set to **DNS only** (grey cloud)
 - [ ] `EMAIL_FROM` is an address on that verified subdomain — there is no default
@@ -977,24 +1004,23 @@ Ordered so nothing waits on something later in the list.
 - [ ] `help@likelylist.tech` routed to a real inbox in Email Routing — `/privacy`
       publishes it as the contact for corrections and erasure requests, so an
       unrouted address turns a legal commitment into a bounce
-- [ ] All secrets pushed with `wrangler secret put`
-- [ ] ⚠️ **Build with production environment values, not `.env.local`.** `robots.txt`
-      and `sitemap.xml` are prerendered and `metadataBase` in `src/app/layout.tsx`
-      is read at module load, so `NEXT_PUBLIC_SITE_URL` is baked in at build time —
-      building with the localhost value ships a sitemap *and every canonical tag*
-      pointing at `http://localhost:3000`. `wrangler secret put` sets *runtime*
-      values only
 - [ ] Search Console: property added, `sitemap.xml` submitted, URL Inspection run
       live against `/`, `/?lang=zh-Hant` and `/explore`; International Targeting
       reports no `hreflang` errors
 - [ ] `npm run preflight` clean against production values
-- [ ] `npm run typecheck && npm run lint && npm test` clean
 - [ ] Test digest received, checked in Gmail for both `List-Unsubscribe` forms,
-      under 100 KB, readable with images off
+      under 100 KB, readable with images off — **the one nothing else stands in
+      for.** Every other box can be green while the weekly send has never reached a
+      real inbox
 - [ ] One-click unsubscribe verified with a real `POST`
-- [ ] Workers custom domain bound; `/privacy` reachable; `/robots.txt` disallows
-      `/preview/` and `/unsubscribe`
 - [ ] Cron triggers visible in the Cloudflare dashboard after deploy
+
+⚠️ On every redeploy: **build with production environment values, not `.env.local`.**
+`robots.txt` and `sitemap.xml` are prerendered and `metadataBase` in
+`src/app/layout.tsx` is read at module load, so `NEXT_PUBLIC_SITE_URL` is baked in at
+build time — building with the localhost value ships a sitemap *and every canonical
+tag* pointing at `http://localhost:3000`. `wrangler secret put` sets *runtime* values
+only.
 
 ---
 
