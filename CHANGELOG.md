@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.6 — 2026-10-21
+
+Timezone correctness, gone over deliberately because it decides when an email
+arrives and what a calendar entry says.
+
+- **A calendar entry for an event with no timezone was four hours wrong.** The
+  zone fell back to UTC, so an 8pm Boston show was written as 20:00Z and read
+  4pm — the failure the file documents itself as existing to prevent. It now
+  goes all-day on the venue's date: right day, no invented hour. A test had
+  recorded the broken output as correct.
+- **DST is now actually tested.** Six Wednesdays across a year, either side of
+  both US transitions, against every zone and send hour — 252 combinations. Plus
+  a show in the hour after the clocks jump forward, which is the only case that
+  exercises the two-pass offset correction, verified by breaking it.
+- Explore states its window as the range of rows returned. Bounding the search
+  by UTC instants while labelling rows with venue-local dates cannot produce a
+  header that agrees, and two earlier attempts failed in opposite directions.
+
+Verified sound, not changed: showtimes are never re-zoned (a venue's 8pm is 8pm
+for every reader) while onsales always are (one instant everybody races), and
+every event from the live API carries a zone, so only pins predating that can
+reach the all-day path.
+
 ## 1.1.5 — 2026-10-20
 
 - **A place read as "BostonMA".** Three surfaces spaced a name and its state

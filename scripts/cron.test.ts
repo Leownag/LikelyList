@@ -92,6 +92,53 @@ test("the weekly cron leaves room for every supported timezone", () => {
   }
 });
 
+test("the send lands on the right local morning across a DST year", () => {
+  // The cron is a fixed hour in UTC and every US zone moves twice a year, so the
+  // relationship between the two is not constant. A single summer date proves
+  // nothing about November. These are Wednesdays either side of both US
+  // transitions, plus the transition weeks themselves.
+  const CACHE_TTL_HOURS = 36;
+  const [minute, hour] = workerWeeklyCron().split(" ");
+
+  const wednesdays = [
+    "2026-01-14", // deep winter, standard time
+    "2026-03-04", // the Wednesday before the spring transition
+    "2026-03-11", // the Wednesday after it
+    "2026-07-15", // deep summer, daylight time
+    "2026-10-28", // the Wednesday before the autumn transition
+    "2026-11-04", // the Wednesday after it
+  ];
+
+  for (const date of wednesdays) {
+    const [y, m, d] = date.split("-").map(Number);
+    const runStart = new Date(Date.UTC(y, m - 1, d, Number(hour), Number(minute)));
+    assert.equal(runStart.getUTCDay(), 3, `${date} is not a Wednesday`);
+
+    for (const zone of TIMEZONES) {
+      for (const sendHour of DIGEST_SEND_HOURS) {
+        const at = sendInstantFor(runStart, zone, sendHour);
+        const local = localParts(zone, at);
+
+        assert.equal(local.weekday, 3, `${date} ${zone} @${sendHour} is not a Wednesday`);
+        assert.equal(
+          local.hour,
+          sendHour,
+          `${date} ${zone} @${sendHour} drifted to ${local.hour} — a DST offset was taken from the wrong instant`,
+        );
+        assert.ok(
+          at.getTime() >= runStart.getTime(),
+          `${date} ${zone} @${sendHour} would be due before the run is built`,
+        );
+        const hoursLater = (at.getTime() - runStart.getTime()) / 3_600_000;
+        assert.ok(
+          hoursLater < CACHE_TTL_HOURS,
+          `${date} ${zone} @${sendHour} sends ${hoursLater}h after the build, past the cache TTL`,
+        );
+      }
+    }
+  }
+});
+
 test("every offered timezone is a US one", () => {
   // The listings are US-only, so a zone that can never match an event is a
   // promise the product cannot keep. London, Taipei and Tokyo were on this list.
