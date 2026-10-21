@@ -265,29 +265,39 @@ async function main() {
       truncated?: boolean;
     };
 
-    // The page promises the next seven days. The header used to be computed in
-    // UTC while every row carries a venue-local date, and then — after that was
-    // fixed — to shrink to whatever the capped result set happened to span.
+    // The invariant is that the header describes the list under it. Not that it
+    // spans seven days: the search is bounded by UTC instants and every row is
+    // labelled with a venue's local date, so a seven-day span of instants can
+    // touch eight local days, or fewer when a page of results runs out.
     const [start, end] = payload.window.split(" … ");
-    const days =
-      (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000;
-    assert(days === 6, `window spans ${days + 1} days, not 7 (${payload.window})`);
+    const dates = payload.events.map((event) => event.localDate).sort();
+    if (dates.length > 0) {
+      assert(
+        start === dates[0] && end === dates[dates.length - 1],
+        `header says ${payload.window} but the rows run ${dates[0]} … ${dates[dates.length - 1]}`,
+      );
+    }
 
     assert(
       typeof payload.truncated === "boolean",
       "no `truncated` flag, so the UI cannot say when the week was cut short",
     );
 
-    const today = new Date().toISOString().slice(0, 10);
-    const past = payload.events.filter((event) => event.localDate < today);
-    assert(past.length === 0, `${past.length} shows dated before today`);
-
-    if (payload.events.length > 0) {
-      assert(
-        payload.events[0].localDate >= start,
-        `first row ${payload.events[0].localDate} is outside the stated window ${payload.window}`,
-      );
-    }
+    // Against the window the API states, not against today in UTC.
+    //
+    // Comparing a venue's local date to a UTC date is the exact mistake this
+    // endpoint was fixed for, and it reappeared here: at 21:22 in Boston it is
+    // already the 21st in UTC, so a show starting in eight minutes is dated the
+    // 20th and looked like it was in the past. Whether a show has started is
+    // enforced server-side by searching from `now`; what a smoke test can check
+    // is that no row falls outside the window the response advertises.
+    const outside = payload.events.filter(
+      (event) => event.localDate < start || event.localDate > end,
+    );
+    assert(
+      outside.length === 0,
+      `${outside.length} rows outside the stated window ${payload.window} (e.g. ${outside[0]?.localDate})`,
+    );
     return `${payload.events.length} shows · ${payload.window}${payload.truncated ? " · truncated" : ""}`;
   });
 
