@@ -2,7 +2,7 @@ import type { AdminClient } from "@/lib/supabase/admin";
 import type { AppEnv } from "@/lib/env";
 import type { DigestJob, DigestRun } from "@/lib/db";
 import { buildDigest } from "./build";
-import { sendDigestEmail } from "./send";
+import { digestIdempotencyKey, sendDigestEmail } from "./send";
 import {
   findDueImports,
   importTopArtists,
@@ -56,6 +56,11 @@ const SPOTIFY_IMPORT_BATCH = 3;
 export type DrainResult = {
   claimed: number;
   sent: number;
+  /**
+   * Sends Resend refused as a repeat of one it had already accepted. Counted
+   * inside `sent` as well: the reader has the email either way.
+   */
+  deduped: number;
   failed: number;
   skipped: number;
   released: number;
@@ -76,6 +81,7 @@ export async function drainDigestQueue(
   const result: DrainResult = {
     claimed: 0,
     sent: 0,
+    deduped: 0,
     failed: 0,
     skipped: 0,
     released: 0,
@@ -147,7 +153,14 @@ export async function drainDigestQueue(
         continue;
       }
 
-      const { emailId } = await sendDigestEmail(env, digest);
+      // Keyed on the job's identity, not on this attempt, so a retry of a send
+      // that already reached Resend replays the original instead of posting a
+      // second copy. This is what closes the gap between the call below and the
+      // status write under it — the one window where a dying Worker could
+      // otherwise cost a subscriber a duplicate email.
+      const { emailId, deduped } = await sendDigestEmail(env, digest, {
+        idempotencyKey: digestIdempotencyKey(job.run_id, job.user_id),
+      });
 
       await supabase
         .from("digest_jobs")
@@ -157,11 +170,17 @@ export async function drainDigestQueue(
           event_count: digest.totalEventCount,
           locked_until: null,
           sent_at: new Date().toISOString(),
-          error: null,
+          // Kept on a success row rather than cleared: a dedupe means an earlier
+          // attempt sent the email and never recorded it, which is worth being
+          // able to see afterwards.
+          error: deduped
+            ? "Already sent under this job's idempotency key; this attempt delivered nothing."
+            : null,
         })
         .eq("id", job.id);
 
       result.sent += 1;
+      if (deduped) result.deduped += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const giveUp = job.attempts >= MAX_ATTEMPTS;

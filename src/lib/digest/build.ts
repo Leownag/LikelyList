@@ -346,6 +346,8 @@ export async function buildDigest(
     await enrichPerformers(supabase, env, profile.timezone, scored);
   }
 
+  const linkIssuedAt = digestLinkIssuedAt(options.startDate);
+
   return {
     userId,
     email: recipient,
@@ -359,8 +361,8 @@ export async function buildDigest(
     cities: cityNames,
     fallbackReason: unfiltered ? "no_preferences" : null,
     ordering,
-    previewUrl: await previewUrl(env, userId),
-    unsubscribeUrl: await unsubscribeUrl(env, userId),
+    previewUrl: await previewUrl(env, userId, linkIssuedAt),
+    unsubscribeUrl: await unsubscribeUrl(env, userId, linkIssuedAt),
     unsubscribeMailto: env.emailUnsubscribeMailto || null,
     siteUrl: env.siteUrl,
   };
@@ -496,6 +498,8 @@ async function emptyDigest(
   options: BuildOptions,
   cities: string[],
 ): Promise<Digest> {
+  const linkIssuedAt = digestLinkIssuedAt(options.startDate);
+
   return {
     userId: profile.id,
     email: profile.email,
@@ -507,20 +511,58 @@ async function emptyDigest(
     cities,
     fallbackReason: null,
     ordering: "date",
-    previewUrl: await previewUrl(env, profile.id),
-    unsubscribeUrl: await unsubscribeUrl(env, profile.id),
+    previewUrl: await previewUrl(env, profile.id, linkIssuedAt),
+    unsubscribeUrl: await unsubscribeUrl(env, profile.id, linkIssuedAt),
     unsubscribeMailto: env.emailUnsubscribeMailto || null,
     siteUrl: env.siteUrl,
   };
 }
 
-async function previewUrl(env: AppEnv, userId: string): Promise<string> {
-  const token = await signToken(env.unsubscribeHmacSecret, "preview", userId);
+/**
+ * The instant this run's signed links are stamped with.
+ *
+ * Deterministic per run rather than `Date.now()`, and that is load-bearing: the
+ * rendered HTML *is* the payload the send is deduplicated on, and a token minted
+ * afresh on every attempt would change the body on every retry. Resend rejects a
+ * reused idempotency key whose payload differs, so a per-render timestamp would
+ * turn every retry of a crashed job into a hard 409. Anchored on the window start
+ * so all attempts at all subscribers in a run agree.
+ *
+ * Clamped to now because the on-demand preview builds a window from the reader's
+ * own local midnight, which is still in the future for zones ahead of UTC — and
+ * verifyToken rejects a token issued in the future.
+ */
+export function digestLinkIssuedAt(startDate: string, now = Date.now()): number {
+  return Math.min(Date.parse(`${startDate}T00:00:00Z`), now);
+}
+
+async function previewUrl(
+  env: AppEnv,
+  userId: string,
+  issuedAt: number,
+): Promise<string> {
+  const token = await signToken(
+    env.unsubscribeHmacSecret,
+    "preview",
+    userId,
+    "",
+    issuedAt,
+  );
   return `${env.siteUrl}/preview/digest/${token}`;
 }
 
-async function unsubscribeUrl(env: AppEnv, userId: string): Promise<string> {
-  const token = await signToken(env.unsubscribeHmacSecret, "unsubscribe", userId);
+async function unsubscribeUrl(
+  env: AppEnv,
+  userId: string,
+  issuedAt: number,
+): Promise<string> {
+  const token = await signToken(
+    env.unsubscribeHmacSecret,
+    "unsubscribe",
+    userId,
+    "",
+    issuedAt,
+  );
   return `${env.siteUrl}/unsubscribe?t=${token}`;
 }
 
